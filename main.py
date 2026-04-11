@@ -1,12 +1,10 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import json, random, time, os
 
 TOKEN = os.getenv("TOKEN")
 
 MAIN_OWNER = 972663557420351498
-
-COIN_NAME = "SamCoin"
 EMOJI = "🪙"
 
 WORK_CD = 1800
@@ -20,7 +18,7 @@ OWNERS_FILE = "owners.json"
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 def load(file):
     try:
@@ -35,12 +33,9 @@ def save(file, data):
 
 def get_data():
     data = load(DATA_FILE)
-    if "users" not in data:
-        data["users"] = {}
-    if "global_shop" not in data:
-        data["global_shop"] = {}
-    if "servers" not in data:
-        data["servers"] = {}
+    data.setdefault("users", {})
+    data.setdefault("servers", {})
+    data.setdefault("global_shop", {})
     return data
 
 def get_user(data, uid):
@@ -63,7 +58,17 @@ def is_owner(ctx):
 
 @bot.event
 async def on_ready():
-    print(f"Online as {bot.user}")
+    print(f"✅ Online as {bot.user}")
+    passive.start()
+
+# ================= PASSIVE =================
+
+@tasks.loop(minutes=5)
+async def passive():
+    data = get_data()
+    for uid in data["users"]:
+        data["users"][uid]["coins"] += random.randint(1,5)
+    save(DATA_FILE,data)
 
 # ================= ECONOMY =================
 
@@ -104,6 +109,19 @@ async def daily(ctx):
 
     await ctx.send(f"You got {amt} {EMOJI}")
 
+# ================= LEADERBOARD =================
+
+@bot.command()
+async def top(ctx):
+    data = get_data()
+    users = sorted(data["users"].items(), key=lambda x: x[1]["coins"], reverse=True)[:10]
+    msg = "\n".join([f"{i+1}. <@{u[0]}> - {u[1]['coins']}" for i,u in enumerate(users)])
+    await ctx.send(msg)
+
+@bot.command()
+async def globaltop(ctx):
+    await top(ctx)
+
 # ================= GIVE =================
 
 @bot.command()
@@ -139,8 +157,7 @@ async def addglobalitem(ctx, name, price:int):
 @bot.command()
 async def globalshop(ctx):
     data = get_data()
-    shop = data["global_shop"]
-    msg = "\n".join([f"{k}-{v}" for k,v in shop.items()])
+    msg = "\n".join([f"{k}-{v}" for k,v in data["global_shop"].items()])
     await ctx.send(msg or "Empty")
 
 @bot.command()
@@ -158,16 +175,13 @@ async def buyglobal(ctx, item):
     user["coins"] -= price
     user["ginv"][item] = user["ginv"].get(item,0)+1
     save(DATA_FILE,data)
-
     await ctx.send("Bought")
 
 @bot.command()
 async def globalinventory(ctx):
     data = get_data()
     user = get_user(data, ctx.author.id)
-
-    inv = user["ginv"]
-    msg = "\n".join([f"{k} x{v}" for k,v in inv.items()])
+    msg = "\n".join([f"{k} x{v}" for k,v in user["ginv"].items()])
     await ctx.send(msg or "Empty")
 
 # ================= SERVER SHOP =================
@@ -186,7 +200,6 @@ async def additem(ctx, name, price:int):
 async def shop(ctx):
     data = get_data()
     server = get_server(data, ctx.guild.id)
-
     msg = "\n".join([f"{k}-{v}" for k,v in server["shop"].items()])
     await ctx.send(msg or "Empty")
 
@@ -215,7 +228,6 @@ async def buy(ctx, item):
 async def inventory(ctx):
     data = get_data()
     server = get_server(data, ctx.guild.id)
-
     inv = server["inv"].get(str(ctx.author.id),{})
     msg = "\n".join([f"{k} x{v}" for k,v in inv.items()])
     await ctx.send(msg or "Empty")
@@ -227,7 +239,7 @@ async def lottery(ctx):
     data = get_data()
     user = get_user(data, ctx.author.id)
 
-    if random.choice([True,False]):
+    if random.random() < 0.5:
         win = random.randint(50,200)
         user["coins"] += win
         msg = f"Won {win}"
@@ -294,16 +306,29 @@ async def owners(ctx):
         msg += f"{u.name}\n"
     await ctx.send(msg or "None")
 
-# ================= HELP =================
+# ================= RESET =================
 
 @bot.command()
-async def help(ctx):
-    await ctx.send("Use economy, shop, lottery, redeem commands")
+async def resetuser(ctx, member: discord.Member):
+    if not is_owner(ctx):
+        return
+    data = get_data()
+    data["users"].pop(str(member.id),None)
+    save(DATA_FILE,data)
+    await ctx.send("User reset")
 
 @bot.command()
-async def ownerhelp(ctx):
-    await ctx.send("Owner cmds: addowner removeowner createcode")
+async def resetglobal(ctx):
+    if ctx.author.id != MAIN_OWNER:
+        return
+    save(DATA_FILE,{})
+    await ctx.send("Global reset")
 
 # ================= RUN =================
+
+if TOKEN is None:
+    print("❌ TOKEN is missing!")
+else:
+    print("✅ TOKEN loaded")
 
 bot.run(TOKEN)
