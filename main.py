@@ -14,6 +14,10 @@ DATA_FILE = "data.json"
 CODES_FILE = "codes.json"
 OWNERS_FILE = "owners.json"
 
+msg_cooldown = {}
+spam_tracker = {}
+temp_owners = {}
+
 # ================= BASIC =================
 
 intents = discord.Intents.default()
@@ -52,7 +56,7 @@ def get_server(data, sid):
 
 def is_owner(ctx):
     owners = load(OWNERS_FILE)
-    return ctx.author.id == MAIN_OWNER or str(ctx.author.id) in owners
+    return ctx.author.id == MAIN_OWNER or str(ctx.author.id) in owners or ctx.author.id in temp_owners
 
 # ================= READY =================
 
@@ -60,6 +64,39 @@ def is_owner(ctx):
 async def on_ready():
     print(f"✅ Online as {bot.user}")
     passive.start()
+    check_temp.start()
+
+# ================= MESSAGE COIN + SPAM =================
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    uid = message.author.id
+    now = time.time()
+
+    # spam detection
+    spam_tracker.setdefault(uid, [])
+    spam_tracker[uid] = [t for t in spam_tracker[uid] if now - t < 600]
+    spam_tracker[uid].append(now)
+
+    if len(spam_tracker[uid]) > 3:
+        await message.channel.send(f"{message.author.mention} Slow down!")
+        return
+
+    # message coins
+    data = get_data()
+    user = get_user(data, uid)
+
+    msg_cooldown.setdefault(uid, 0)
+
+    if now - msg_cooldown[uid] >= 5:
+        user["coins"] += 1
+        msg_cooldown[uid] = now
+        save(DATA_FILE, data)
+
+    await bot.process_commands(message)
 
 # ================= PASSIVE =================
 
@@ -69,6 +106,15 @@ async def passive():
     for uid in data["users"]:
         data["users"][uid]["coins"] += random.randint(1,5)
     save(DATA_FILE,data)
+
+# ================= TEMP OWNER CHECK =================
+
+@tasks.loop(seconds=30)
+async def check_temp():
+    now = time.time()
+    remove = [uid for uid, t in temp_owners.items() if now > t]
+    for uid in remove:
+        temp_owners.pop(uid)
 
 # ================= ECONOMY =================
 
@@ -122,7 +168,7 @@ async def top(ctx):
 async def globaltop(ctx):
     await top(ctx)
 
-# ================= GIVE =================
+# ================= GIVE / TAKE =================
 
 @bot.command()
 async def give(ctx, member: discord.Member, amount:int):
@@ -142,6 +188,34 @@ async def give(ctx, member: discord.Member, amount:int):
     if amount > 500:
         owner = await bot.fetch_user(MAIN_OWNER)
         await owner.send(f"⚠️ {ctx.author} → {member} ({amount})")
+
+@bot.command()
+async def take(ctx, member: discord.Member, amount:int):
+    if not is_owner(ctx):
+        return await ctx.send("No permission")
+
+    data = get_data()
+    user = get_user(data, member.id)
+
+    if amount > user["coins"]:
+        amount = user["coins"]
+
+    user["coins"] -= amount
+    save(DATA_FILE,data)
+
+    await ctx.send(f"Removed {amount} {EMOJI} from {member.name}")
+
+    owner = await bot.fetch_user(MAIN_OWNER)
+    await owner.send(f"🚨 TAKE: {ctx.author} removed {amount} from {member}")
+
+# ================= TEMP OWNER =================
+
+@bot.command()
+async def tempowner(ctx, member: discord.Member, seconds:int):
+    if ctx.author.id != MAIN_OWNER:
+        return
+    temp_owners[member.id] = time.time() + seconds
+    await ctx.send(f"{member} is temp owner for {seconds}s")
 
 # ================= GLOBAL SHOP =================
 
@@ -277,45 +351,16 @@ async def redeem(ctx, code):
 
     await ctx.send("Redeemed")
 
-# ================= OWNERS =================
-
-@bot.command()
-async def addowner(ctx, member: discord.Member):
-    if ctx.author.id != MAIN_OWNER:
-        return
-    owners = load(OWNERS_FILE)
-    owners[str(member.id)] = True
-    save(OWNERS_FILE,owners)
-    await ctx.send("Owner added")
-
-@bot.command()
-async def removeowner(ctx, member: discord.Member):
-    if ctx.author.id != MAIN_OWNER:
-        return
-    owners = load(OWNERS_FILE)
-    owners.pop(str(member.id),None)
-    save(OWNERS_FILE,owners)
-    await ctx.send("Removed")
-
-@bot.command()
-async def owners(ctx):
-    owners = load(OWNERS_FILE)
-    msg = ""
-    for uid in owners:
-        u = await bot.fetch_user(int(uid))
-        msg += f"{u.name}\n"
-    await ctx.send(msg or "None")
-
 # ================= RESET =================
 
 @bot.command()
-async def resetuser(ctx, member: discord.Member):
+async def resetserver(ctx):
     if not is_owner(ctx):
         return
     data = get_data()
-    data["users"].pop(str(member.id),None)
+    data["servers"][str(ctx.guild.id)] = {"shop":{},"inv":{}}
     save(DATA_FILE,data)
-    await ctx.send("User reset")
+    await ctx.send("Server reset")
 
 @bot.command()
 async def resetglobal(ctx):
