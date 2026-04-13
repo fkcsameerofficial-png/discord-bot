@@ -134,22 +134,28 @@ async def balance(i: discord.Interaction, member: discord.Member = None):
 
 @tree.command(name="give")
 async def give(i: discord.Interaction, member: discord.Member, amount: int):
+
     if amount <= 0:
         return await i.response.send_message("❌ Invalid amount")
 
-embed = discord.Embed(
-    title="⚠️ Confirm Transfer",
-    description=f"Send coins to {member.mention}",
-    color=0xf1c40f
-)
+    embed = discord.Embed(
+        title="⚠️ Confirm Transfer",
+        description=f"You are sending coins to {member.mention}",
+        color=0xf1c40f
+    )
 
-embed.add_field(name="🪙 Amount", value=f"{amount} 🪙")
-embed.set_footer(text="Click confirm to proceed")
+    embed.add_field(
+        name="🪙 Amount",
+        value=f"**{amount} {EMOJI}**",
+        inline=False
+    )
 
-await i.response.send_message(
-    embed=embed,
-    view=GiveConfirm(i.user, member, amount)
-)
+    embed.set_footer(text="Click confirm to proceed")
+
+    await i.response.send_message(
+        embed=embed,
+        view=GiveConfirm(i.user, member, amount)
+    )
 
 @tree.command(name="take")
 async def take(i: discord.Interaction, member: discord.Member, amount: int):
