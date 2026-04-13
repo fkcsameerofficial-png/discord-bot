@@ -24,7 +24,7 @@ spam = {}
 msg_cd = {}
 temp_owners = {}
 
-================= UTIL =================
+#================= UTIL =================
 
 def emb(t, d):
 e = discord.Embed(
