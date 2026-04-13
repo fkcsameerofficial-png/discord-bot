@@ -132,6 +132,54 @@ async def balance(i: discord.Interaction, member: discord.Member = None):
 
     await i.response.send_message(embed=embed)
 
+class GiveConfirm(discord.ui.View):
+    def __init__(self, sender, receiver, amount):
+        super().__init__(timeout=30)
+        self.sender = sender
+        self.receiver = receiver
+        self.amount = amount
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.sender:
+            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
+
+        d = data()
+        s = user(d, self.sender.id)
+        r = user(d, self.receiver.id)
+
+        if not is_owner(self.sender.id):
+            if s["coins"] < self.amount:
+                return await interaction.response.send_message("❌ Not enough coins", ephemeral=True)
+            s["coins"] -= self.amount
+
+        r["coins"] += self.amount
+        save(DATA_FILE, d)
+
+        embed = discord.Embed(
+            title="✅ Transaction Successful",
+            color=0x2ecc71
+        )
+
+        embed.add_field(name="📤 Sender", value=self.sender.mention, inline=True)
+        embed.add_field(name="📥 Receiver", value=self.receiver.mention, inline=True)
+        embed.add_field(name="🪙 Amount", value=f"**{self.amount} {EMOJI}**", inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.sender:
+            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
+
+        embed = discord.Embed(
+            title="❌ Transaction Cancelled",
+            description="No coins were sent.",
+            color=0xe74c3c
+        )
+
+        await interaction.response.edit_message(embed=embed, view=None)
+
 @tree.command(name="give")
 async def give(i: discord.Interaction, member: discord.Member, amount: int):
 
