@@ -644,7 +644,31 @@ async def top(i: discord.Interaction):
     
 @tree.command(name="globaltop")
 async def globaltop(i: discord.Interaction):
-await top(i)
+    d = data()["users"]
+    sorted_users = sorted(d.items(), key=lambda x: x[1]["coins"], reverse=True)[:10]
+
+    embed = discord.Embed(
+        title="🌍 Global Leaderboard",
+        color=0x5865F2
+    )
+
+    if not sorted_users:
+        embed.description = "No data available"
+    else:
+        for idx, (uid, val) in enumerate(sorted_users):
+            try:
+                user_obj = await bot.fetch_user(int(uid))
+                name = user_obj.name
+            except:
+                name = uid
+
+            embed.add_field(
+                name=f"#{idx+1} {name}",
+                value=f"{val['coins']} 🪙",
+                inline=False
+            )
+
+    await i.response.send_message(embed=embed)
 
 #================= RESET =================
 
