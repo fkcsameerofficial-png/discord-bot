@@ -27,43 +27,43 @@ temp_owners = {}
 #================= UTIL =================
 
 def emb(t, d):
-e = discord.Embed(
-title=f"✨ {t}",
-description=d,
-color=0x5865F2
-)
-e.set_footer(text="SamCoin 🪙")
-return e
+    e = discord.Embed(
+        title=f"✨ {t}",
+        description=d,
+        color=0x5865F2
+    )
+    e.set_footer(text="SamCoin 🪙")
+    return e
 
 def load(f):
-try:
-with open(f) as x:
-return json.load(x)
-except:
-return {}
+    try:
+        with open(f) as x:
+            return json.load(x)
+    except:
+        return {}
 
 def save(f, d):
-with open(f, "w") as x:
-json.dump(d, x, indent=4)
+    with open(f, "w") as x:
+        json.dump(d, x, indent=4)
 
 def data():
-d = load(DATA_FILE)
-d.setdefault("users", {})
-d.setdefault("servers", {})
-d.setdefault("global_shop", {})
-return d
+    d = load(DATA_FILE)
+    d.setdefault("users", {})
+    d.setdefault("servers", {})
+    d.setdefault("global_shop", {})
+    return d
 
 def user(d, uid):
-uid = str(uid)
-if uid not in d["users"]:
-d["users"][uid] = {"coins":50,"work":0,"daily":0,"ginv":{},"premium_until":0}
-return d["users"][uid]
+    uid = str(uid)
+    if uid not in d["users"]:
+        d["users"][uid] = {"coins":50, "work":0, "daily":0, "ginv":{}}
+    return d["users"][uid]
 
 def server(d, sid):
-sid = str(sid)
-if sid not in d["servers"]:
-d["servers"][sid] = {"shop":{}, "inv":{}}
-return d["servers"][sid]
+    sid = str(sid)
+    if sid not in d["servers"]:
+        d["servers"][sid] = {"shop":{}, "inv":{}}
+    return d["servers"][sid]
 
 def is_owner(uid):
 return uid == MAIN_OWNER or str(uid) in load(OWNERS_FILE) or uid in temp_owners
@@ -77,7 +77,7 @@ async def on_ready():
 await tree.sync()
 print("✅ Bot Ready")
 
-================= MESSAGE COIN =================
+#================= MESSAGE COIN =================
 
 @bot.event
 async def on_message(m):
@@ -102,7 +102,7 @@ if now - msg_cd[uid] >= 5:
     msg_cd[uid] = now  
     save(DATA_FILE, d)
 
-================= ECONOMY =================
+#================= ECONOMY =================
 
 @tree.command(name="balance")
 async def balance(i: discord.Interaction, member: discord.Member = None):
@@ -323,7 +323,7 @@ async def daily(i: discord.Interaction):
 
     await i.response.send_message(embed=embed)
 
-================= SHOP =================
+#================= SHOP =================
 @tree.command(name="buypremium")
 @app_commands.describe(plan="Choose premium plan")
 @app_commands.choices(plan=[
@@ -450,7 +450,7 @@ inv = server(d, i.guild.id)["inv"].get(str(i.user.id), {})
 msg = "\n".join([f"{k} x{v}" for k, v in inv.items()])
 await i.response.send_message(msg or "Empty")
 
-================= GLOBAL SHOP =================
+#================= GLOBAL SHOP =================
 
 @tree.command(name="addglobalitem")
 async def addglobalitem(i, name: str, price: int):
@@ -494,7 +494,7 @@ inv = user(d, i.user.id)["ginv"]
 msg = "\n".join([f"{k} x{v}" for k, v in inv.items()])
 await i.response.send_message(msg or "Empty")
 
-================= REDEEM =================
+#================= REDEEM =================
 
 @tree.command(name="createcode")
 async def createcode(i, code: str, amount: int):
@@ -521,7 +521,7 @@ save(DATA_FILE, d)
 
 await i.response.send_message("✅ Redeemed")
 
-================= OWNER =================
+#================= OWNER =================
 
 @tree.command(name="addowner")
 async def addowner(i, member: discord.Member):
@@ -560,7 +560,7 @@ else:
 
 await i.response.send_message(msg)
 
-================= LOTTERY =================
+#================= LOTTERY =================
 
 @tree.command(name="lottery")
 async def lottery(i):
@@ -577,7 +577,7 @@ else:
 save(DATA_FILE, d)  
 await i.response.send_message(msg)
 
-================= LEADERBOARD =================
+#================= LEADERBOARD =================
 
 @tree.command(name="top")
 async def top(i: discord.Interaction):
@@ -599,7 +599,7 @@ await i.response.send_message(msg or "Empty")
 async def globaltop(i: discord.Interaction):
 await top(i)
 
-================= RESET =================
+#================= RESET =================
 
 @tree.command(name="resetserver")
 async def resetserver(i: discord.Interaction):
@@ -627,7 +627,7 @@ save(DATA_FILE, d)
 
 await i.response.send_message("✅ Global data reset")
 
-================= TEMP OWNER =================
+#================= TEMP OWNER =================
 
 @tree.command(name="tempowner")
 async def tempowner(i: discord.Interaction, member: discord.Member, minutes: int):
@@ -639,7 +639,7 @@ temp_owners[member.id] = expire
 
 await i.response.send_message(f"✅ {member.name} is owner for {minutes} minutes")
 
-================= HELP =================
+#================= HELP =================
 
 @tree.command(name="help")
 async def help_cmd(i: discord.Interaction):
@@ -776,6 +776,6 @@ async def ownerhelp(i: discord.Interaction):
 
     await i.response.send_message(embed=embed)
 
-================= RUN =================
+#================= RUN =================
 
 bot.run(TOKEN)
