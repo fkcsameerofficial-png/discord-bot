@@ -84,23 +84,24 @@ async def on_message(m):
     if m.author.bot:
         return
 
-uid = m.author.id  
-now = time.time()  
+    uid = m.author.id
+    now = time.time()
 
-spam.setdefault(uid, [])  
-spam[uid] = [t for t in spam[uid] if now - t < 10]  
-spam[uid].append(now)  
-if len(spam[uid]) > 5:  
-    return  
+    spam.setdefault(uid, [])
+    spam[uid] = [t for t in spam[uid] if now - t < 10]
+    spam[uid].append(now)
 
-d = data()  
-u = user(d, uid)  
+    if len(spam[uid]) > 5:
+        return
 
-msg_cd.setdefault(uid, 0)  
-if now - msg_cd[uid] >= 5:  
-    u["coins"] += 1  
-    msg_cd[uid] = now  
-    save(DATA_FILE, d)
+    d = data()
+    u = user(d, uid)
+
+    msg_cd.setdefault(uid, 0)
+    if now - msg_cd[uid] >= 5:
+        u["coins"] += 1
+        msg_cd[uid] = now
+        save(DATA_FILE, d)
 
 #================= ECONOMY =================
 
@@ -148,46 +149,44 @@ class GiveConfirm(discord.ui.View):
         self.receiver = receiver
         self.amount = amount
 
-@discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)  
-async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):  
-    if interaction.user != self.sender:  
-        return await interaction.response.send_message("❌ Not your action", ephemeral=True)  
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.sender:
+            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
 
-    d = data()  
-    s = user(d, self.sender.id)  
-    r = user(d, self.receiver.id)  
+        d = data()
+        s = user(d, self.sender.id)
+        r = user(d, self.receiver.id)
 
-    if not is_owner(self.sender.id):  
-        if s["coins"] < self.amount:  
-            return await interaction.response.send_message("❌ Not enough coins", ephemeral=True)  
-        s["coins"] -= self.amount  
+        if not is_owner(self.sender.id):
+            if s["coins"] < self.amount:
+                return await interaction.response.send_message("❌ Not enough coins", ephemeral=True)
+            s["coins"] -= self.amount
 
-    r["coins"] += self.amount  
-    save(DATA_FILE, d)  
+        r["coins"] += self.amount
+        save(DATA_FILE, d)
 
-    embed = discord.Embed(  
-        title="✅ Transaction Successful",  
-        color=0x2ecc71  
-    )  
+        embed = discord.Embed(
+            title="✅ Transaction Successful",
+            color=0x2ecc71
+        )
+        embed.add_field(name="📤 Sender", value=self.sender.mention)
+        embed.add_field(name="📥 Receiver", value=self.receiver.mention)
+        embed.add_field(name="🪙 Amount", value=f"{self.amount} {EMOJI}")
 
-    embed.add_field(name="📤 Sender", value=self.sender.mention, inline=True)  
-    embed.add_field(name="📥 Receiver", value=self.receiver.mention, inline=True)  
-    embed.add_field(name="🪙 Amount", value=f"**{self.amount} {EMOJI}**", inline=False)  
+        await interaction.response.edit_message(embed=embed, view=None)
 
-    await interaction.response.edit_message(embed=embed, view=None)  
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.sender:
+            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
 
-@discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)  
-async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):  
-    if interaction.user != self.sender:  
-        return await interaction.response.send_message("❌ Not your action", ephemeral=True)  
+        embed = discord.Embed(
+            title="❌ Transaction Cancelled",
+            color=0xe74c3c
+        )
 
-    embed = discord.Embed(  
-        title="❌ Transaction Cancelled",  
-        description="No coins were sent.",  
-        color=0xe74c3c  
-    )  
-
-    await interaction.response.edit_message(embed=embed, view=None)
+        await interaction.response.edit_message(embed=embed, view=None)
 
 @tree.command(name="give")
 async def give(i: discord.Interaction, member: discord.Member, amount: int):
@@ -195,24 +194,24 @@ async def give(i: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
         return await i.response.send_message("❌ Invalid amount")
 
-embed = discord.Embed(  
-    title="⚠️ Confirm Transfer",  
-    description=f"You are sending coins to {member.mention}",  
-    color=0xf1c40f  
-)  
+    embed = discord.Embed(
+        title="⚠️ Confirm Transfer",
+        description=f"You are sending coins to {member.mention}",
+        color=0xf1c40f
+    )
 
-embed.add_field(  
-    name="🪙 Amount",  
-    value=f"**{amount} {EMOJI}**",  
-    inline=False  
-)  
+    embed.add_field(
+        name="🪙 Amount",
+        value=f"{amount} {EMOJI}",
+        inline=False
+    )
 
-embed.set_footer(text="Click confirm to proceed")  
+    embed.set_footer(text="Click confirm to proceed")
 
-await i.response.send_message(  
-    embed=embed,  
-    view=GiveConfirm(i.user, member, amount)  
-)
+    await i.response.send_message(
+        embed=embed,
+        view=GiveConfirm(i.user, member, amount)
+    )
 
 @tree.command(name="take")
 async def take(i: discord.Interaction, member: discord.Member, amount: int):
@@ -412,65 +411,86 @@ async def additem(i: discord.Interaction, name: str, price: int, quantity: int):
     await i.response.send_message(embed=embed)
     
 @tree.command(name="shop")
-async def shop(i):
-d = data()
-s = server(d, i.guild.id)
+async def shop(i: discord.Interaction):
+    d = data()
+    s = server(d, i.guild.id)
 
-embed = discord.Embed(title="🛒 Shop", color=0x3498db)  
+    embed = discord.Embed(title="🛒 Shop", color=0x3498db)
 
-if not s["shop"]:  
-    embed.description = "Empty shop"  
-else:  
-    for name, val in s["shop"].items():  
-        embed.add_field(  
-            name=name,  
-            value=f"💰 {val['price']} | 📦 {val['qty']} left",  
-            inline=False  
-        )  
+    if not s["shop"]:
+        embed.description = "Empty shop"
+    else:
+        for name, val in s["shop"].items():
+            embed.add_field(
+                name=name,
+                value=f"💰 {val['price']} 🪙 | 📦 {val['qty']} left",
+                inline=False
+            )
 
-await i.response.send_message(embed=embed)
+    await i.response.send_message(embed=embed)
 
 @tree.command(name="buy")
-async def buy(i, item: str):
-d = data()
-s = server(d, i.guild.id)
-u = user(d, i.user.id)
+async def buy(i: discord.Interaction, item: str):
+    d = data()
+    s = server(d, i.guild.id)
+    u = user(d, i.user.id)
 
-if item not in s["shop"]:  
-    return await i.response.send_message("❌ Not found")  
+    if item not in s["shop"]:
+        return await i.response.send_message("❌ Not found")
 
-item_data = s["shop"][item]  
+    item_data = s["shop"][item]
 
-if item_data["qty"] <= 0:  
-    return await i.response.send_message("❌ Out of stock")  
+    if item_data["qty"] <= 0:
+        return await i.response.send_message("❌ Out of stock")
 
-if not is_owner(i.user.id):  
-    if u["coins"] < item_data["price"]:  
-        return await i.response.send_message("❌ Not enough")  
-    u["coins"] -= item_data["price"]  
+    if not is_owner(i.user.id):
+        if u["coins"] < item_data["price"]:
+            return await i.response.send_message("❌ Not enough")
+        u["coins"] -= item_data["price"]
 
-item_data["qty"] -= 1  
+    item_data["qty"] -= 1
 
-s["inv"].setdefault(str(i.user.id), {})  
-inv = s["inv"][str(i.user.id)]  
-inv[item] = inv.get(item, 0) + 1  
+    s["inv"].setdefault(str(i.user.id), {})
+    inv = s["inv"][str(i.user.id)]
+    inv[item] = inv.get(item, 0) + 1
 
-save(DATA_FILE, d)  
-await i.response.send_message("✅ Bought")
+    save(DATA_FILE, d)
+
+    embed = discord.Embed(
+        title="🛒 Purchase Successful",
+        color=0x2ecc71
+    )
+    embed.add_field(name="📦 Item", value=item, inline=True)
+    embed.add_field(name="💰 Price", value=f"{item_data['price']} 🪙", inline=True)
+    embed.add_field(name="📊 Remaining", value=str(item_data["qty"]), inline=True)
+
+    await i.response.send_message(embed=embed)
+
 
 @tree.command(name="inventory")
-async def inventory(i):
-d = data()
-inv = server(d, i.guild.id)["inv"].get(str(i.user.id), {})
-msg = "\n".join([f"{k} x{v}" for k, v in inv.items()])
-await i.response.send_message(msg or "Empty")
+async def inventory(i: discord.Interaction):
+    d = data()
+    inv = server(d, i.guild.id)["inv"].get(str(i.user.id), {})
+
+    if not inv:
+        return await i.response.send_message("📦 Your inventory is empty")
+
+    embed = discord.Embed(
+        title="🎒 Your Inventory",
+        color=0x5865F2
+    )
+
+    for item, qty in inv.items():
+        embed.add_field(name=item, value=f"x{qty}", inline=True)
+
+    await i.response.send_message(embed=embed)
 
 #================= GLOBAL SHOP =================
 
 @tree.command(name="addglobalitem")
 async def addglobalitem(i, name: str, price: int):
-if i.user.id != MAIN_OWNER:
-return await i.response.send_message("❌ Only main owner")
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message("❌ Only main owner")
 
 d = data()  
 d["global_shop"][name] = price  
@@ -479,17 +499,17 @@ await i.response.send_message("✅ Added")
 
 @tree.command(name="globalshop")
 async def globalshop(i):
-d = data()
-msg = "\n".join([f"{k} - {v}" for k, v in d["global_shop"].items()])
-await i.response.send_message(msg or "Empty")
+    d = data()
+    msg = "\n".join([f"{k} - {v}" for k, v in d["global_shop"].items()])
+    await i.response.send_message(msg or "Empty")
 
 @tree.command(name="buyglobal")
 async def buyglobal(i, item: str):
-d = data()
-u = user(d, i.user.id)
+    d = data()
+    u = user(d, i.user.id)
 
-if item not in d["global_shop"]:  
-    return await i.response.send_message("❌ Not found")  
+    if item not in d["global_shop"]:  
+        return await i.response.send_message("❌ Not found")  
 
 price = d["global_shop"][item]  
 
@@ -504,10 +524,10 @@ await i.response.send_message("✅ Bought")
 
 @tree.command(name="globalinventory")
 async def globalinventory(i):
-d = data()
-inv = user(d, i.user.id)["ginv"]
-msg = "\n".join([f"{k} x{v}" for k, v in inv.items()])
-await i.response.send_message(msg or "Empty")
+    d = data()
+    inv = user(d, i.user.id)["ginv"]
+    msg = "\n".join([f"{k} x{v}" for k, v in inv.items()])
+    await i.response.send_message(msg or "Empty")
 
 #================= REDEEM =================
 
@@ -757,6 +777,7 @@ async def ownerhelp(i: discord.Interaction):
         name="🌍 Global Control",
         value="""
 /addglobalitem
+/resetglobal
 """,
         inline=False
     )
@@ -770,27 +791,24 @@ async def ownerhelp(i: discord.Interaction):
     )
 
     embed.add_field(
-        name="👑 Owner System",
+        name="👑 Owner Management",
         value="""
 /addowner
 /removeowner
 /tempowner
-/owners
 """,
         inline=False
     )
 
     embed.add_field(
-        name="⚙️ System",
+        name="⚙️ Server",
         value="""
 /resetserver
-/resetglobal
 """,
         inline=False
     )
 
     await i.response.send_message(embed=embed)
-
 #================= RUN =================
 
 bot.run(TOKEN)
