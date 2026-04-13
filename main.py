@@ -70,7 +70,7 @@ def is_owner(uid):
 
 def is_premium(u):
     return time.time() < u.get("premium_until", 0)
-================= READY =================
+#================= READY =================
 
 @bot.event
 async def on_ready():
