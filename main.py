@@ -218,23 +218,24 @@ async def take(i: discord.Interaction, member: discord.Member, amount: int):
     if i.user.id != MAIN_OWNER:
         return await i.response.send_message("❌ Only main owner")
 
-d = data()  
-u = user(d, member.id)  
+    d = data()
+    u = user(d, member.id)
 
-u["coins"] = max(0, u["coins"] - amount)  
-save(DATA_FILE, d)  
+    u["coins"] = max(0, u["coins"] - amount)
+    save(DATA_FILE, d)
 
-await i.response.send_message(f"✅ Took {amount} {EMOJI} from {member.mention}")
-
+    await i.response.send_message(f"✅ Took {amount} {EMOJI} from {member.mention}")
+    
 @tree.command(name="setcoins")
 async def setcoins(i: discord.Interaction, member: discord.Member, amount: int):
     if not is_owner(i.user.id):
         return await i.response.send_message("❌ No permission")
 
-d = data()  
-user(d, member.id)["coins"] = amount  
-save(DATA_FILE, d)  
-await i.response.send_message("✅ Set")
+    d = data()
+    user(d, member.id)["coins"] = amount
+    save(DATA_FILE, d)
+
+    await i.response.send_message("✅ Set")
 
 @tree.command(name="work")
 async def work(i: discord.Interaction):
@@ -488,14 +489,15 @@ async def inventory(i: discord.Interaction):
 #================= GLOBAL SHOP =================
 
 @tree.command(name="addglobalitem")
-async def addglobalitem(i, name: str, price: int):
+async def addglobalitem(i: discord.Interaction, name: str, price: int):
     if i.user.id != MAIN_OWNER:
         return await i.response.send_message("❌ Only main owner")
 
-d = data()  
-d["global_shop"][name] = price  
-save(DATA_FILE, d)  
-await i.response.send_message("✅ Added")
+    d = data()
+    d["global_shop"][name] = price
+    save(DATA_FILE, d)
+
+    await i.response.send_message("✅ Added")
 
 @tree.command(name="globalshop")
 async def globalshop(i):
@@ -504,24 +506,25 @@ async def globalshop(i):
     await i.response.send_message(msg or "Empty")
 
 @tree.command(name="buyglobal")
-async def buyglobal(i, item: str):
+async def buyglobal(i: discord.Interaction, item: str):
     d = data()
     u = user(d, i.user.id)
 
-    if item not in d["global_shop"]:  
-        return await i.response.send_message("❌ Not found")  
+    if item not in d["global_shop"]:
+        return await i.response.send_message("❌ Not found")
 
-price = d["global_shop"][item]  
+    price = d["global_shop"][item]
 
-if not is_owner(i.user.id):  
-    if u["coins"] < price:  
-        return await i.response.send_message("❌ Not enough")  
-    u["coins"] -= price  
+    if not is_owner(i.user.id):
+        if u["coins"] < price:
+            return await i.response.send_message("❌ Not enough")
+        u["coins"] -= price
 
-u["ginv"][item] = u["ginv"].get(item, 0) + 1  
-save(DATA_FILE, d)  
-await i.response.send_message("✅ Bought")
+    u["ginv"][item] = u["ginv"].get(item, 0) + 1
+    save(DATA_FILE, d)
 
+    await i.response.send_message("✅ Bought")
+    
 @tree.command(name="globalinventory")
 async def globalinventory(i):
     d = data()
@@ -532,104 +535,113 @@ async def globalinventory(i):
 #================= REDEEM =================
 
 @tree.command(name="createcode")
-async def createcode(i, code: str, amount: int):
-if not is_owner(i.user.id):
-return await i.response.send_message("❌ No permission")
+async def createcode(i: discord.Interaction, code: str, amount: int):
+    if not is_owner(i.user.id):
+        return await i.response.send_message("❌ No permission")
 
-c = load(CODES_FILE)  
-c[code] = amount  
-save(CODES_FILE, c)  
-await i.response.send_message("✅ Code created")
+    c = load(CODES_FILE)
+    c[code] = amount
+    save(CODES_FILE, c)
+
+    await i.response.send_message("✅ Code created")
 
 @tree.command(name="redeem")
-async def redeem(i, code: str):
-c = load(CODES_FILE)
-d = data()
+async def redeem(i: discord.Interaction, code: str):
+    c = load(CODES_FILE)
+    d = data()
 
-if code not in c:  
-    return await i.response.send_message("❌ Invalid code")  
+    if code not in c:
+        return await i.response.send_message("❌ Invalid code")
 
-user(d, i.user.id)["coins"] += c[code]  
-del c[code]  
-save(CODES_FILE, c)  
-save(DATA_FILE, d)  
+    user(d, i.user.id)["coins"] += c[code]
+    del c[code]
 
-await i.response.send_message("✅ Redeemed")
+    save(CODES_FILE, c)
+    save(DATA_FILE, d)
+
+    await i.response.send_message("✅ Redeemed")
 
 #================= OWNER =================
 
 @tree.command(name="addowner")
-async def addowner(i, member: discord.Member):
-if i.user.id != MAIN_OWNER:
-return await i.response.send_message("❌ Only main owner")
+async def addowner(i: discord.Interaction, member: discord.Member):
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message("❌ Only main owner")
 
-o = load(OWNERS_FILE)  
-o[str(member.id)] = True  
-save(OWNERS_FILE, o)  
-await i.response.send_message("✅ Owner added")
+    o = load(OWNERS_FILE)
+    o[str(member.id)] = True
+    save(OWNERS_FILE, o)
 
+    await i.response.send_message("✅ Owner added")
+    
 @tree.command(name="removeowner")
-async def removeowner(i, member: discord.Member):
-if i.user.id != MAIN_OWNER:
-return await i.response.send_message("❌ Only main owner")
+async def removeowner(i: discord.Interaction, member: discord.Member):
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message("❌ Only main owner")
 
-o = load(OWNERS_FILE)  
-o.pop(str(member.id), None)  
-save(OWNERS_FILE, o)  
-await i.response.send_message("✅ Owner removed")
+    o = load(OWNERS_FILE)
+    o.pop(str(member.id), None)
+    save(OWNERS_FILE, o)
 
-# ✅ FIXED OWNERS
-
+    await i.response.send_message("✅ Owner removed")
+    
 @tree.command(name="owners")
 async def owners(i: discord.Interaction):
-o = load(OWNERS_FILE)
+    o = load(OWNERS_FILE)
 
-msg = f"👑 Main Owner: <@{MAIN_OWNER}>\n\n"  
+    msg = f"👑 Main Owner: <@{MAIN_OWNER}>\n\n"
 
-if o:  
-    msg += "🛡️ Other Owners:\n"  
-    for uid in o:  
-        msg += f"<@{uid}>\n"  
-else:  
-    msg += "No extra owners"  
+    if o:
+        msg += "🛡️ Other Owners:\n"
+        for uid in o:
+            msg += f"<@{uid}>\n"
+    else:
+        msg += "No extra owners"
 
-await i.response.send_message(msg)
+    await i.response.send_message(msg)
 
 #================= LOTTERY =================
 
 @tree.command(name="lottery")
-async def lottery(i):
-d = data()
-u = user(d, i.user.id)
+async def lottery(i: discord.Interaction):
+    d = data()
+    u = user(d, i.user.id)
 
-if random.choice([True, False]):  
-    w = random.randint(50, 200)  
-    u["coins"] += w  
-    msg = f"🎉 Won {w}"  
-else:  
-    msg = "❌ Lost"  
+    # entry fee
+    if u["coins"] < 10:
+        return await i.response.send_message("❌ You need 10 🪙 to play")
 
-save(DATA_FILE, d)  
-await i.response.send_message(msg)
+    u["coins"] -= 10
+
+    if random.choice([True, False]):
+        w = random.randint(50, 200)
+        u["coins"] += w
+        msg = f"🎉 You won {w} 🪙!"
+    else:
+        msg = "❌ You lost 10 🪙"
+
+    save(DATA_FILE, d)
+    await i.response.send_message(msg)
 
 #================= LEADERBOARD =================
 
 @tree.command(name="top")
 async def top(i: discord.Interaction):
-d = data()["users"]
-sorted_users = sorted(d.items(), key=lambda x: x[1]["coins"], reverse=True)[:10]
+    d = data()["users"]
+    sorted_users = sorted(d.items(), key=lambda x: x[1]["coins"], reverse=True)[:10]
 
-msg = ""  
-for idx, (uid, val) in enumerate(sorted_users):  
-    try:  
-        user_obj = await bot.fetch_user(int(uid))  
-        name = user_obj.name  
-    except:  
-        name = uid  
-    msg += f"{idx+1}. {name} - {val['coins']}\n"  
+    msg = ""
+    for idx, (uid, val) in enumerate(sorted_users):
+        try:
+            user_obj = await bot.fetch_user(int(uid))
+            name = user_obj.name
+        except:
+            name = uid
 
-await i.response.send_message(msg or "Empty")
+        msg += f"{idx+1}. {name} - {val['coins']}\n"
 
+    await i.response.send_message(msg or "Empty")
+    
 @tree.command(name="globaltop")
 async def globaltop(i: discord.Interaction):
 await top(i)
@@ -638,42 +650,42 @@ await top(i)
 
 @tree.command(name="resetserver")
 async def resetserver(i: discord.Interaction):
-if not is_owner(i.user.id):
-return await i.response.send_message("❌ No permission")
+    if not is_owner(i.user.id):
+        return await i.response.send_message("❌ No permission")
 
-d = data()  
-sid = str(i.guild.id)  
+    d = data()
+    sid = str(i.guild.id)
 
-if sid in d["servers"]:  
-    d["servers"][sid] = {"shop": {}, "inv": {}}  
-    save(DATA_FILE, d)  
+    if sid in d["servers"]:
+        d["servers"][sid] = {"shop": {}, "inv": {}}
+        save(DATA_FILE, d)
 
-await i.response.send_message("✅ Server data reset")
-
+    await i.response.send_message("✅ Server data reset")
+    
 @tree.command(name="resetglobal")
 async def resetglobal(i: discord.Interaction):
-if i.user.id != MAIN_OWNER:
-return await i.response.send_message("❌ Only main owner")
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message("❌ Only main owner")
 
-d = data()  
-d["users"] = {}  
-d["global_shop"] = {}  
-save(DATA_FILE, d)  
+    d = data()
+    d["users"] = {}
+    d["global_shop"] = {}
+    save(DATA_FILE, d)
 
-await i.response.send_message("✅ Global data reset")
-
+    await i.response.send_message("✅ Global data reset")
+    
 #================= TEMP OWNER =================
 
 @tree.command(name="tempowner")
 async def tempowner(i: discord.Interaction, member: discord.Member, minutes: int):
-if i.user.id != MAIN_OWNER:
-return await i.response.send_message("❌ Only main owner")
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message("❌ Only main owner")
 
-expire = time.time() + (minutes * 60)  
-temp_owners[member.id] = expire  
+    expire = time.time() + (minutes * 60)
+    temp_owners[member.id] = expire
 
-await i.response.send_message(f"✅ {member.name} is owner for {minutes} minutes")
-
+    await i.response.send_message(f"✅ {member.name} is owner for {minutes} minutes")
+    
 #================= HELP =================
 
 @tree.command(name="help")
