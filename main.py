@@ -543,7 +543,7 @@ o.pop(str(member.id), None)
 save(OWNERS_FILE, o)  
 await i.response.send_message("✅ Owner removed")
 
-✅ FIXED OWNERS
+# ✅ FIXED OWNERS
 
 @tree.command(name="owners")
 async def owners(i: discord.Interaction):
