@@ -31,7 +31,7 @@ def emb(t, d):
         description=d,
         color=0x5865F2
     )
-    e.set_footer(text="SamCoin 💰")
+    e.set_footer(text="SamCoin 🪙")
     return e
 
 def load(f):
@@ -102,60 +102,54 @@ async def on_message(m):
 async def balance(i: discord.Interaction, member: discord.Member = None):
     member = member or i.user
     d = data()
-    await i.response.send_message(embed=emb("Balance", f"{member.name}: {user(d, member.id)['coins']} {EMOJI}"))
+    coins = user(d, member.id)["coins"]
 
-class GiveConfirm(discord.ui.View):
-    def __init__(self, sender, receiver, amount):
-        super().__init__(timeout=30)
-        self.sender = sender
-        self.receiver = receiver
-        self.amount = amount
+    embed = discord.Embed(
+        title="💰 Wallet",
+        color=0x5865F2
+    )
 
-    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.sender:
-            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
+    embed.add_field(
+        name="👤 User",
+        value=member.mention,
+        inline=True
+    )
 
-        d = data()
-        s = user(d, self.sender.id)
-        r = user(d, self.receiver.id)
+    embed.add_field(
+        name="🪙 Balance",
+        value=f"**{coins} 🪙**",
+        inline=True
+    )
 
-        if not is_owner(self.sender.id):
-            if s["coins"] < self.amount:
-                return await interaction.response.send_message("❌ Not enough coins", ephemeral=True)
-            s["coins"] -= self.amount
+    embed.add_field(
+        name="📊 Status",
+        value="🟢 Active",
+        inline=False
+    )
 
-        r["coins"] += self.amount
-        save(DATA_FILE, d)
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text="SamCoin System 🪙")
 
-        embed = discord.Embed(
-            title="💸 Transaction Done",
-            description=f"{self.sender.mention} ➜ {self.receiver.mention}\n**{self.amount} {EMOJI} sent**",
-            color=0x2ecc71
-        )
-
-        await interaction.response.edit_message(embed=embed, view=None)
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.sender:
-            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
-
-        await interaction.response.edit_message(content="❌ Cancelled", view=None)
-
+    await i.response.send_message(embed=embed)
 
 @tree.command(name="give")
 async def give(i: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
         return await i.response.send_message("❌ Invalid amount")
 
-    embed = discord.Embed(
-        title="⚠️ Confirm Transfer",
-        description=f"Send **{amount} {EMOJI}** to {member.mention}?",
-        color=0xf1c40f
-    )
+embed = discord.Embed(
+    title="⚠️ Confirm Transfer",
+    description=f"Send coins to {member.mention}",
+    color=0xf1c40f
+)
 
-    await i.response.send_message(embed=embed, view=GiveConfirm(i.user, member, amount))
+embed.add_field(name="🪙 Amount", value=f"{amount} 🪙")
+embed.set_footer(text="Click confirm to proceed")
+
+await i.response.send_message(
+    embed=embed,
+    view=GiveConfirm(i.user, member, amount)
+)
 
 @tree.command(name="take")
 async def take(i: discord.Interaction, member: discord.Member, amount: int):
@@ -185,28 +179,76 @@ async def work(i: discord.Interaction):
     d = data()
     u = user(d, i.user.id)
 
-    if i.user.id != MAIN_OWNER and time.time() - u["work"] < WORK_CD:
-        return await i.response.send_message("⏳ Wait before working again")
+    now = time.time()
+    remaining = WORK_CD - (now - u["work"])
 
+    # cooldown check
+    if i.user.id != MAIN_OWNER and remaining > 0:
+        mins = int(remaining // 60)
+        secs = int(remaining % 60)
+
+        embed = discord.Embed(
+            title="⏳ Work Cooldown",
+            description=f"You can work again in **{mins}m {secs}s**",
+            color=0xe67e22
+        )
+        return await i.response.send_message(embed=embed)
+
+    # reward
     amt = random.randint(25, 100)
     u["coins"] += amt
-    u["work"] = time.time()
+    u["work"] = now
     save(DATA_FILE, d)
-    await i.response.send_message(f"💰 You earned {amt}")
+
+    embed = discord.Embed(
+        title="💼 Work Complete",
+        color=0x2ecc71
+    )
+
+    embed.add_field(name="💰 Earned", value=f"{amt} 🪙", inline=True)
+    embed.add_field(name="📊 New Balance", value=f"{u['coins']} 🪙", inline=True)
+
+    embed.set_footer(text="Come back later for more work 💼")
+
+    await i.response.send_message(embed=embed)
 
 @tree.command(name="daily")
 async def daily(i: discord.Interaction):
     d = data()
     u = user(d, i.user.id)
 
-    if i.user.id != MAIN_OWNER and time.time() - u["daily"] < DAILY_CD:
-        return await i.response.send_message("⏳ Already claimed")
+    now = time.time()
+    remaining = DAILY_CD - (now - u["daily"])
 
-    amt = random.randint(25, 50)
+    # cooldown check
+    if i.user.id != MAIN_OWNER and remaining > 0:
+        hrs = int(remaining // 3600)
+        mins = int((remaining % 3600) // 60)
+
+        embed = discord.Embed(
+            title="⏳ Daily Cooldown",
+            description=f"Come back in **{hrs}h {mins}m**",
+            color=0xe67e22
+        )
+        return await i.response.send_message(embed=embed)
+
+    # reward
+    amt = random.randint(50, 150)
     u["coins"] += amt
-    u["daily"] = time.time()
+    u["daily"] = now
     save(DATA_FILE, d)
-    await i.response.send_message(f"🎁 You got {amt}")
+
+    embed = discord.Embed(
+        title="🎁 Daily Reward Claimed",
+        color=0x2ecc71
+    )
+
+    embed.add_field(name="💰 Reward", value=f"{amt} 🪙", inline=True)
+    embed.add_field(name="📊 New Balance", value=f"{u['coins']} 🪙", inline=True)
+
+    embed.set_footer(text="Come back tomorrow for more 🎁")
+
+    await i.response.send_message(embed=embed)
 
 # ================= SHOP =================
 @tree.command(name="additem")
