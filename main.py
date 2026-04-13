@@ -66,7 +66,7 @@ def server(d, sid):
     return d["servers"][sid]
 
 def is_owner(uid):
-return uid == MAIN_OWNER or str(uid) in load(OWNERS_FILE) or uid in temp_owners
+    return uid == MAIN_OWNER or str(uid) in load(OWNERS_FILE) or uid in temp_owners
 
 def is_premium(u):
     return time.time() < u.get("premium_until", 0)
@@ -74,15 +74,15 @@ def is_premium(u):
 
 @bot.event
 async def on_ready():
-await tree.sync()
-print("✅ Bot Ready")
+    await tree.sync()
+    print("✅ Bot Ready")
 
 #================= MESSAGE COIN =================
 
 @bot.event
 async def on_message(m):
-if m.author.bot:
-return
+    if m.author.bot:
+        return
 
 uid = m.author.id  
 now = time.time()  
@@ -142,11 +142,11 @@ async def balance(i: discord.Interaction, member: discord.Member = None):
     await i.response.send_message(embed=embed)
 
 class GiveConfirm(discord.ui.View):
-def init(self, sender, receiver, amount):
-super().init(timeout=30)
-self.sender = sender
-self.receiver = receiver
-self.amount = amount
+    def __init__(self, sender, receiver, amount):
+        super().__init__(timeout=30)
+        self.sender = sender
+        self.receiver = receiver
+        self.amount = amount
 
 @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)  
 async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):  
@@ -192,8 +192,8 @@ async def cancel(self, interaction: discord.Interaction, button: discord.ui.Butt
 @tree.command(name="give")
 async def give(i: discord.Interaction, member: discord.Member, amount: int):
 
-if amount <= 0:  
-    return await i.response.send_message("❌ Invalid amount")  
+    if amount <= 0:
+        return await i.response.send_message("❌ Invalid amount")
 
 embed = discord.Embed(  
     title="⚠️ Confirm Transfer",  
@@ -216,8 +216,8 @@ await i.response.send_message(
 
 @tree.command(name="take")
 async def take(i: discord.Interaction, member: discord.Member, amount: int):
-if i.user.id != MAIN_OWNER:
-return await i.response.send_message("❌ Only main owner")
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message("❌ Only main owner")
 
 d = data()  
 u = user(d, member.id)  
@@ -229,8 +229,8 @@ await i.response.send_message(f"✅ Took {amount} {EMOJI} from {member.mention}"
 
 @tree.command(name="setcoins")
 async def setcoins(i: discord.Interaction, member: discord.Member, amount: int):
-if not is_owner(i.user.id):
-return await i.response.send_message("❌ No permission")
+    if not is_owner(i.user.id):
+        return await i.response.send_message("❌ No permission")
 
 d = data()  
 user(d, member.id)["coins"] = amount  
@@ -386,16 +386,31 @@ async def premium(i: discord.Interaction):
     await i.response.send_message(embed=embed)
 
 @tree.command(name="additem")
-async def additem(i, name: str, price: int, quantity: int):
-if not is_owner(i.user.id):
-return await i.response.send_message("❌ No permission")
+async def additem(i: discord.Interaction, name: str, price: int, quantity: int):
+    if not is_owner(i.user.id):
+        return await i.response.send_message("❌ No permission")
 
-d = data()  
-server(d, i.guild.id)["shop"][name] = {"price": price, "qty": quantity}  
-save(DATA_FILE, d)  
+    d = data()
+    server_data = server(d, i.guild.id)
 
-await i.response.send_message("✅ Item added")
+    server_data["shop"][name] = {
+        "price": price,
+        "qty": quantity
+    }
 
+    save(DATA_FILE, d)
+
+    embed = discord.Embed(
+        title="✅ Item Added",
+        color=0x2ecc71
+    )
+
+    embed.add_field(name="📦 Item", value=name, inline=True)
+    embed.add_field(name="💰 Price", value=f"{price} 🪙", inline=True)
+    embed.add_field(name="📊 Quantity", value=str(quantity), inline=True)
+
+    await i.response.send_message(embed=embed)
+    
 @tree.command(name="shop")
 async def shop(i):
 d = data()
