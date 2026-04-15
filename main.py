@@ -672,26 +672,26 @@ async def removecoins(
     await i.response.send_message(embed=embed)
 
 #================= WORK =================
-
 @tree.command(name="work")
 async def work(i: discord.Interaction):
 
     u = get_user(i.user.id)
 
     now = time.time()
-    remaining = WORK_CD - (now - u.get("work", 0))
+    last_work = u.get("work", 0)
+    remaining = WORK_CD - (now - last_work)
 
     premium = is_premium(u)
 
-    # 🔒 cooldown (same for everyone except main owner)
+    # 🔒 cooldown for everyone except main owner
     if i.user.id != MAIN_OWNER and remaining > 0:
         mins = int(remaining // 60)
         secs = int(remaining % 60)
 
         return await i.response.send_message(
             embed=emb(
-                "Work Cooldown",
-                f"⏳ Try again in **{mins}m {secs}s**",
+                "⏳ Work Cooldown",
+                f"Try again in **{mins}m {secs}s**",
                 i.user
             )
         )
@@ -704,97 +704,55 @@ async def work(i: discord.Interaction):
         g_amt = random.randint(25, 100)
         o_amt = random.randint(1, 5)
 
-    # 💠 OCOIN ONLY IN OFFICIAL SERVER
-    if not is_official_server(i.guild.id):
-        o_amt = 0
-
-    # update balances safely
+    # 💾 update balances
     u["gcoins"] = u.get("gcoins", 0) + g_amt
     u["ocoins"] = u.get("ocoins", 0) + o_amt
     u["work"] = now
 
     update_user(u)
 
-    # 🎨 UI (premium style)
+    # 🎨 UI
     if premium:
-        embed = emb(
+        embed_msg = emb(
             "💼 Premium Work Complete",
-            "💎 You earned boosted rewards!",
+            "You earned boosted rewards!",
             i.user
         )
     else:
-        embed = emb(
+        embed_msg = emb(
             "💼 Work Complete",
             "You earned some coins!",
             i.user
         )
 
-    embed.add_field(name="👤 User", value=i.user.mention, inline=False)
-
-    embed.add_field(
+    embed_msg.add_field(
         name="🪙 Gcoins Earned",
         value=f"**+{g_amt} {EMOJI}**",
         inline=True
     )
 
-    embed.add_field(
+    embed_msg.add_field(
         name="💠 Ocoins Earned",
         value=f"**+{o_amt} 💠**",
         inline=True
     )
 
-    embed.add_field(
-        name="📊 New Balance",
-        value=f"🪙 {u.get('gcoins',0)} | 💠 {u.get('ocoins',0)}",
-        inline=False
-    )
-
-    if premium:
-        embed.add_field(
-            name="💎 Premium Bonus",
-            value="Higher rewards applied!",
-            inline=False
-        )
-
-    embed.set_footer(text="Come back later for more work 💼")
-
-    await i.response.send_message(embed=embed)
-    else:
-        embed = discord.Embed(
-            title="💼 Work Complete",
-            color=0x2ecc71
-        )
-
-    embed.add_field(name="👤 User", value=i.user.mention, inline=False)
-
-    embed.add_field(
-        name="🪙 Gcoins Earned",
-        value=f"**+{g_amt} {EMOJI}**",
-        inline=True
-    )
-
-    embed.add_field(
-        name="💠 Ocoins Earned",
-        value=f"**+{o_amt} 💠**",
-        inline=True
-    )
-
-    embed.add_field(
-        name="📊 New Balance",
+    embed_msg.add_field(
+        name="📊 Total Balance",
         value=f"🪙 {u['gcoins']} | 💠 {u['ocoins']}",
         inline=False
     )
 
     if premium:
-        embed.add_field(
+        embed_msg.add_field(
             name="💎 Premium Bonus",
             value="Higher rewards applied!",
             inline=False
         )
 
-    embed.set_footer(text="Come back later for more work 💼")
+    embed_msg.set_footer(text="Come back in 30 minutes ⏳")
 
-    await i.response.send_message(embed=embed)
+    await i.response.send_message(embed=embed_msg)
 
 #================= DAILY =================
 
@@ -942,26 +900,57 @@ async def daily(i: discord.Interaction):
 ])
 async def buypremium(i: discord.Interaction, plan: app_commands.Choice[str]):
 
+    # 🔒 MUST JOIN OFFICIAL SERVER
+    if not is_official_server(i.guild.id):
+        embed_msg = emb(
+            "Join Required",
+            "💠 To buy premium, you must join the official server first!",
+            i.user
+        )
+
+        embed_msg.add_field(
+            name="📢 Official Server",
+            value="👉 https://discord.gg/WMrzPHQCWM",
+            inline=False
+        )
+
+        embed_msg.add_field(
+            name="💎 Why Join?",
+            value="Access premium shop, ocoins, roles & exclusive features!",
+            inline=False
+        )
+
+        return await i.response.send_message(embed=embed_msg)
+
     u = get_user(i.user.id)
 
+    # 🧠 plans
     plans = {
         "7": (10000, 7),
         "15": (18000, 15),
         "30": (25000, 30)
     }
 
-    price, days = plans[plan.value]
-
-    if u.get("gcoins", 0) < price:
+    if plan.value not in plans:
         return await i.response.send_message(
-            embed=emb("Insufficient Balance", "❌ Not enough gcoins", i.user)
+            embed=emb("Error", "❌ Invalid plan selected", i.user)
         )
 
+    price, days = plans[plan.value]
+
+    # 💰 balance check
+    if u.get("gcoins", 0) < price:
+        return await i.response.send_message(
+            embed=emb("Insufficient Balance", "❌ Not enough gcoins 🪙", i.user)
+        )
+
+    # 💸 deduct
     u["gcoins"] -= price
 
     now = time.time()
     current = u.get("premium_until", 0)
 
+    # ⏳ extend / set
     if current > now:
         u["premium_until"] += days * 86400
     else:
@@ -969,16 +958,40 @@ async def buypremium(i: discord.Interaction, plan: app_commands.Choice[str]):
 
     update_user(u)
 
-    embed = emb(
+    # ⏳ remaining time
+    remaining = u["premium_until"] - now
+    total_days = int(remaining // 86400)
+
+    # 🎨 UI
+    embed_msg = emb(
         "💎 Premium Activated!",
-        f"Enjoy your benefits for **{days} days**",
+        "Welcome to **SamCoin Premium** 🎉",
         i.user
     )
 
-    embed.add_field(name="📦 Plan", value=f"{days} Days", inline=True)
-    embed.add_field(name="💰 Paid", value=f"{price} 🪙", inline=True)
+    embed_msg.add_field(name="📦 Plan", value=f"{days} Days", inline=True)
+    embed_msg.add_field(name="💰 Paid", value=f"{price} 🪙", inline=True)
 
-    await i.response.send_message(embed=embed)
+    embed_msg.add_field(
+        name="⏳ Total Time",
+        value=f"{total_days} Days Remaining",
+        inline=False
+    )
+
+    embed_msg.add_field(
+        name="💎 Benefits",
+        value=(
+            "• Higher work rewards\n"
+            "• Higher daily rewards\n"
+            "• Ocoin transfers\n"
+            "• Higher limits"
+        ),
+        inline=False
+    )
+
+    embed_msg.set_footer(text="Enjoy your premium perks 💎")
+
+    await i.response.send_message(embed=embed_msg)
 # premium status command 
 
 @tree.command(name="premium")
@@ -986,201 +999,650 @@ async def premium(i: discord.Interaction):
 
     u = get_user(i.user.id)
 
-    remaining = u.get("premium_until", 0) - time.time()
+    now = time.time()
+    premium_until = u.get("premium_until", 0)
+    remaining = premium_until - now
 
+    # ❌ no premium / expired
     if remaining <= 0:
-        return await i.response.send_message(
-            embed=emb("Premium Status", "❌ You don't have premium", i.user)
+        embed_msg = emb(
+            "💎 Premium Status",
+            "❌ You don't have an active premium plan",
+            i.user
         )
 
+        embed_msg.add_field(
+            name="💠 Upgrade",
+            value="Use `/buypremium` to unlock premium benefits!",
+            inline=False
+        )
+
+        return await i.response.send_message(embed=embed_msg)
+
+    # ⏳ time calc
     days = int(remaining // 86400)
     hours = int((remaining % 86400) // 3600)
 
-    embed = emb(
+    # 💰 balances
+    gcoins = u.get("gcoins", 0)
+    ocoins = u.get("ocoins", 0)
+
+    # 🎨 UI
+    embed_msg = emb(
         "💎 Premium Status",
-        f"You are a premium user!",
+        "You are enjoying premium benefits ✨",
         i.user
     )
 
-    embed.add_field(name="⏳ Time Left", value=f"{days}d {hours}h", inline=False)
+    embed_msg.add_field(
+        name="⏳ Time Left",
+        value=f"**{days}d {hours}h**",
+        inline=False
+    )
 
-    await i.response.send_message(embed=embed)
+    embed_msg.add_field(
+        name="💰 Balance",
+        value=f"🪙 {gcoins} | 💠 {ocoins}",
+        inline=False
+    )
+
+    embed_msg.add_field(
+        name="💎 Benefits",
+        value=(
+            "• Higher work rewards\n"
+            "• Higher daily rewards\n"
+            "• Ocoin transfers\n"
+            "• Higher give limits"
+        ),
+        inline=False
+    )
+
+    embed_msg.set_footer(text="Premium active ✔")
+
+    await i.response.send_message(embed=embed_msg)
     
-@tree.command(name="additem")
-async def additem(i: discord.Interaction, name: str, price: int, quantity: int):
-    if not is_owner(i.user.id):
-        return await i.response.send_message("❌ No permission")
+#================= OSHOP VIEW =================
 
-    d = data()
-    server_data = server(d, i.guild.id)
+@tree.command(name="oshop")
+async def oshop(i: discord.Interaction):
 
-    server_data["shop"][name] = {
-        "price": price,
-        "qty": quantity
-    }
+    if not is_official_server(i.guild.id):
+        return await i.response.send_message(
+            embed=emb("Access Denied", "💠 OShop only available in official server", i.user)
+        )
 
-    save(DATA_FILE, d)
+    items = list(db.oshop.find({}))
 
-    embed = discord.Embed(
-        title="✅ Item Added",
-        color=0x2ecc71
-    )
+    if not items:
+        return await i.response.send_message(
+            embed=emb("Official Shop", "🛒 Shop is currently empty", i.user)
+        )
 
-    embed.add_field(name="📦 Item", value=name, inline=True)
-    embed.add_field(name="💰 Price", value=f"{price} 🪙", inline=True)
-    embed.add_field(name="📊 Quantity", value=str(quantity), inline=True)
+    embed_msg = emb("🛒 Official Shop", "💠 Premium items available here", i.user)
 
-    await i.response.send_message(embed=embed)
-    
-@tree.command(name="shop")
-async def shop(i: discord.Interaction):
-    d = data()
-    s = server(d, i.guild.id)
+    for item in items:
+        if item["type"] == "role":
+            extra = f"🪪 Role ID: {item['value']}"
+        elif item["type"] == "premium":
+            extra = f"💎 {item['value']} Days Premium"
+        else:
+            extra = f"🎒 Item: {item['value']}"
 
-    embed = discord.Embed(title="🛒 Shop", color=0x3498db)
+        embed_msg.add_field(
+            name=f"{item['name']} ({item['type']})",
+            value=(
+                f"💠 Price: **{item['price']}**\n"
+                f"📦 Stock: **{item.get('qty', 0)}**\n"
+                f"{extra}"
+            ),
+            inline=False
+        )
 
-    if not s["shop"]:
-        embed.description = "Empty shop"
-    else:
-        for name, val in s["shop"].items():
-            embed.add_field(
-                name=name,
-                value=f"💰 {val['price']} 🪙 | 📦 {val['qty']} left",
-                inline=False
-            )
-
-    await i.response.send_message(embed=embed)
-
-@tree.command(name="buy")
-async def buy(i: discord.Interaction, item: str):
-    d = data()
-    s = server(d, i.guild.id)
-    u = user(d, i.user.id)
-
-    if item not in s["shop"]:
-        return await i.response.send_message("❌ Not found")
-
-    item_data = s["shop"][item]
-
-    if item_data["qty"] <= 0:
-        return await i.response.send_message("❌ Out of stock")
-
-    if not is_owner(i.user.id):
-        if u["coins"] < item_data["price"]:
-            return await i.response.send_message("❌ Not enough")
-        u["coins"] -= item_data["price"]
-
-    item_data["qty"] -= 1
-
-    s["inv"].setdefault(str(i.user.id), {})
-    inv = s["inv"][str(i.user.id)]
-    inv[item] = inv.get(item, 0) + 1
-
-    save(DATA_FILE, d)
-
-    embed = discord.Embed(
-        title="🛒 Purchase Successful",
-        color=0x2ecc71
-    )
-    embed.add_field(name="📦 Item", value=item, inline=True)
-    embed.add_field(name="💰 Price", value=f"{item_data['price']} 🪙", inline=True)
-    embed.add_field(name="📊 Remaining", value=str(item_data["qty"]), inline=True)
-
-    await i.response.send_message(embed=embed)
+    await i.response.send_message(embed=embed_msg)
 
 
-@tree.command(name="inventory")
-async def inventory(i: discord.Interaction):
-    d = data()
-    inv = server(d, i.guild.id)["inv"].get(str(i.user.id), {})
+#================= ADD ITEM =================
 
-    if not inv:
-        return await i.response.send_message("📦 Your inventory is empty")
+@tree.command(name="oadditem")
+@app_commands.describe(
+    name="Item name",
+    type="Type of item",
+    price="Price in ocoins",
+    value="Role ID / Days / Item name",
+    quantity="Stock"
+)
+@app_commands.choices(type=[
+    app_commands.Choice(name="Role", value="role"),
+    app_commands.Choice(name="Premium", value="premium"),
+    app_commands.Choice(name="Item", value="item"),
+])
+async def oadditem(i: discord.Interaction, name: str, type: app_commands.Choice[str], price: int, value: str, quantity: int):
 
-    embed = discord.Embed(
-        title="🎒 Your Inventory",
-        color=0x5865F2
-    )
-
-    for item, qty in inv.items():
-        embed.add_field(name=item, value=f"x{qty}", inline=True)
-
-    await i.response.send_message(embed=embed)
-
-#================= GLOBAL SHOP =================
-
-@tree.command(name="addglobalitem")
-async def addglobalitem(i: discord.Interaction, name: str, price: int):
     if i.user.id != MAIN_OWNER:
-        return await i.response.send_message("❌ Only main owner")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner", i.user)
+        )
 
-    d = data()
-    d["global_shop"][name] = price
-    save(DATA_FILE, d)
+    db.oshop.update_one(
+        {"name": name},
+        {"$set": {
+            "name": name,
+            "type": type.value,
+            "price": price,
+            "value": value,
+            "qty": quantity
+        }},
+        upsert=True
+    )
 
-    await i.response.send_message("✅ Added")
+    embed_msg = emb("Item Added", f"✅ **{name}** added to oshop", i.user)
+    embed_msg.add_field(name="📦 Type", value=type.value)
+    embed_msg.add_field(name="💠 Price", value=f"{price}")
+    embed_msg.add_field(name="📊 Stock", value=str(quantity))
 
-@tree.command(name="globalshop")
-async def globalshop(i):
-    d = data()
-    msg = "\n".join([f"{k} - {v}" for k, v in d["global_shop"].items()])
-    await i.response.send_message(msg or "Empty")
+    await i.response.send_message(embed=embed_msg)
 
-@tree.command(name="buyglobal")
-async def buyglobal(i: discord.Interaction, item: str):
-    d = data()
-    u = user(d, i.user.id)
 
-    if item not in d["global_shop"]:
-        return await i.response.send_message("❌ Not found")
+#================= BUY ITEM =================
 
-    price = d["global_shop"][item]
+@tree.command(name="obuy")
+async def obuy(i: discord.Interaction, name: str):
 
-    if not is_owner(i.user.id):
-        if u["coins"] < price:
-            return await i.response.send_message("❌ Not enough")
-        u["coins"] -= price
+    if not is_official_server(i.guild.id):
+        return await i.response.send_message(
+            embed=emb("Access Denied", "💠 Only available in official server", i.user)
+        )
 
-    u["ginv"][item] = u["ginv"].get(item, 0) + 1
-    save(DATA_FILE, d)
+    item = db.oshop.find_one({"name": name})
 
-    await i.response.send_message("✅ Bought")
-    
-@tree.command(name="globalinventory")
-async def globalinventory(i):
-    d = data()
-    inv = user(d, i.user.id)["ginv"]
-    msg = "\n".join([f"{k} x{v}" for k, v in inv.items()])
-    await i.response.send_message(msg or "Empty")
+    if not item:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Item not found", i.user)
+        )
+
+    if item.get("qty", 0) <= 0:
+        return await i.response.send_message(
+            embed=emb("Out of Stock", "❌ Item is sold out", i.user)
+        )
+
+    u = get_user(i.user.id)
+
+    if u.get("ocoins", 0) < item["price"]:
+        return await i.response.send_message(
+            embed=emb("Insufficient Balance", "❌ Not enough ocoins 💠", i.user)
+        )
+
+    # 💸 deduct
+    u["ocoins"] -= item["price"]
+
+    # 🎯 apply reward
+    if item["type"] == "premium":
+        days = int(item["value"])
+        u["premium_until"] = max(time.time(), u.get("premium_until", 0)) + days * 86400
+
+    elif item["type"] == "item":
+        inv = u.get("inventory", {})
+        inv[item["value"]] = inv.get(item["value"], 0) + 1
+        u["inventory"] = inv
+
+    elif item["type"] == "role":
+        role = i.guild.get_role(int(item["value"]))
+        if role:
+            await i.user.add_roles(role)
+
+    # 📉 reduce stock
+    db.oshop.update_one(
+        {"name": name},
+        {"$inc": {"qty": -1}}
+    )
+
+    update_user(u)
+
+    embed_msg = emb("Purchase Successful", f"✅ You bought **{name}**", i.user)
+    embed_msg.add_field(name="💠 Cost", value=f"{item['price']}")
+    embed_msg.add_field(name="📦 Remaining", value=str(item["qty"] - 1))
+
+    await i.response.send_message(embed=embed_msg)
+
+
+#================= REMOVE STOCK =================
+
+@tree.command(name="oremoveitem")
+async def oremoveitem(i: discord.Interaction, name: str, amount: int):
+
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner", i.user)
+        )
+
+    item = db.oshop.find_one({"name": name})
+
+    if not item:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Item not found", i.user)
+        )
+
+    new_qty = max(0, item.get("qty", 0) - amount)
+
+    db.oshop.update_one(
+        {"name": name},
+        {"$set": {"qty": new_qty}}
+    )
+
+    await i.response.send_message(
+        embed=emb("Stock Updated", f"➖ Removed {amount}\nNew stock: **{new_qty}**", i.user)
+    )
+
+
+#================= DELETE ITEM =================
+
+@tree.command(name="odeleteitem")
+async def odeleteitem(i: discord.Interaction, name: str):
+
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner", i.user)
+        )
+
+    result = db.oshop.delete_one({"name": name})
+
+    if result.deleted_count == 0:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Item not found", i.user)
+        )
+
+    await i.response.send_message(
+        embed=emb("Item Deleted", f"🗑️ **{name}** removed from oshop", i.user)
+    )
+
+
+@tree.command(name="oinv")
+async def oinv(i: discord.Interaction, member: discord.Member = None):
+
+    member = member or i.user
+    u = get_user(member.id)
+
+    inventory = u.get("inventory", {})
+    premium = is_premium(u)
+
+    # ❌ empty inventory
+    if not inventory:
+        embed_msg = emb(
+            "🎒 Inventory",
+            f"{member.mention} has no items in inventory",
+            member
+        )
+
+        if premium:
+            embed_msg.title = "💎 Premium Inventory"
+            embed_msg.color = 0xf1c40f
+
+        return await i.response.send_message(embed=embed_msg)
+
+    # 🎨 UI
+    embed_msg = emb(
+        "🎒 Inventory",
+        f"Items owned by {member.mention}",
+        member
+    )
+
+    # 💎 premium UI upgrade
+    if premium:
+        embed_msg.title = "💎 Premium Inventory"
+        embed_msg.color = 0xf1c40f
+
+    # 📦 show items
+    for item_name, qty in inventory.items():
+        embed_msg.add_field(
+            name=f"📦 {item_name}",
+            value=f"Quantity: **{qty}**",
+            inline=False
+        )
+
+    # 💰 balances
+    embed_msg.add_field(
+        name="💰 Balance",
+        value=f"🪙 {u.get('gcoins',0)} | 💠 {u.get('ocoins',0)}",
+        inline=False
+    )
+
+    # 💎 extra premium note
+    if premium:
+        embed_msg.add_field(
+            name="💎 Premium Bonus",
+            value="You have access to exclusive items & trading perks!",
+            inline=False
+        )
+
+    embed_msg.set_footer(text="SamCoin Inventory System 🎒")
+
+    await i.response.send_message(embed=embed_msg)
+#================= GSHOP (PLAYER MARKETPLACE) =================
+
+# 📌 helper → get base price from global shop
+def get_item_price(item_name):
+    item = db.global_shop.find_one({"name": item_name})
+    return item["price"] if item else None
+
+
+#================= SELL ITEM =================
+
+@tree.command(name="gsell")
+async def gsell(i: discord.Interaction, item: str, category: str = "normal"):
+
+    u = get_user(i.user.id)
+    inv = u.get("ginv", {})
+
+    if item not in inv or inv[item] <= 0:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ You don't own this item", i.user)
+        )
+
+    base_price = get_item_price(item)
+    if not base_price:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Item not in global shop", i.user)
+        )
+
+    premium = is_premium(u)
+
+    # 🔒 category rules
+    if category == "premium":
+        if not premium:
+            return await i.response.send_message(
+                embed=emb("Denied", "💎 Premium required for this category", i.user)
+            )
+        price = int(base_price * 0.75)
+
+    else:
+        price = int(base_price * (0.75 if premium else 0.5))
+
+    # ➖ remove from inventory
+    inv[item] -= 1
+    if inv[item] <= 0:
+        del inv[item]
+    u["ginv"] = inv
+
+    # 📦 add to market
+    db.gshop.insert_one({
+        "item": item,
+        "price": price,
+        "seller": i.user.id,
+        "category": category
+    })
+
+    update_user(u)
+
+    await i.response.send_message(
+        embed=emb(
+            "Item Listed",
+            f"📦 **{item}** listed for **{price} 🪙** in {category} market",
+            i.user
+        )
+    )
+
+
+#================= VIEW MARKET =================
+
+@tree.command(name="gshop")
+async def gshop(i: discord.Interaction):
+
+    items = list(db.gshop.find({}))
+
+    if not items:
+        return await i.response.send_message(
+            embed=emb("Market", "🛒 No listings available", i.user)
+        )
+
+    embed_msg = emb("🛒 Player Market", "Buy items from other players", i.user)
+
+    for idx, item in enumerate(items, start=1):
+        embed_msg.add_field(
+            name=f"{idx}. {item['item']} ({item['category']})",
+            value=f"💰 {item['price']} 🪙",
+            inline=False
+        )
+
+    await i.response.send_message(embed=embed_msg)
+
+
+#================= BUY FROM MARKET =================
+
+@tree.command(name="gbuy")
+async def gbuy(i: discord.Interaction, index: int):
+
+    items = list(db.gshop.find({}))
+
+    if index < 1 or index > len(items):
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Invalid item index", i.user)
+        )
+
+    item = items[index - 1]
+
+    buyer = get_user(i.user.id)
+    seller = get_user(item["seller"])
+
+    # 💰 check balance
+    if buyer.get("gcoins", 0) < item["price"]:
+        return await i.response.send_message(
+            embed=emb("Insufficient Balance", "❌ Not enough gcoins", i.user)
+        )
+
+    # 💸 transfer
+    buyer["gcoins"] -= item["price"]
+    seller["gcoins"] = seller.get("gcoins", 0) + item["price"]
+
+    # 📦 give item to buyer
+    inv = buyer.get("ginv", {})
+    inv[item["item"]] = inv.get(item["item"], 0) + 1
+    buyer["ginv"] = inv
+
+    # 🗑 remove listing
+    db.gshop.delete_one({"_id": item["_id"]})
+
+    update_user(buyer)
+    update_user(seller)
+
+    embed_msg = emb("Purchase Successful", f"✅ You bought **{item['item']}**", i.user)
+    embed_msg.add_field(name="💰 Paid", value=f"{item['price']} 🪙")
+    embed_msg.add_field(name="👤 Seller", value=f"<@{item['seller']}>")
+
+    await i.response.send_message(embed=embed_msg)
+
+
+#================= REMOVE LISTING =================
+
+@tree.command(name="gremove")
+async def gremove(i: discord.Interaction, index: int):
+
+    items = list(db.gshop.find({}))
+
+    if index < 1 or index > len(items):
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Invalid index", i.user)
+        )
+
+    item = items[index - 1]
+
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner", i.user)
+        )
+
+    db.gshop.delete_one({"_id": item["_id"]})
+
+    await i.response.send_message(
+        embed=emb("Removed", f"🗑 Listing removed", i.user)
+    )
+
+
+#================= DELETE ALL =================
+
+@tree.command(name="gdeleteall")
+async def gdeleteall(i: discord.Interaction):
+
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner", i.user)
+        )
+
+    db.gshop.delete_many({})
+
+    await i.response.send_message(
+        embed=emb("Market Cleared", "🧹 All listings removed", i.user)
+    )
+
+#================= CREATE CODE =================
+
+@tree.command(name="createcode")
+@app_commands.describe(
+    code="Code name",
+    reward="Reward type",
+    value="Item name / role ID / premium days / none",
+    amount="Amount (for coins)",
+    uses="Number of uses",
+    scope="global or official"
+)
+@app_commands.choices(
+    reward=[
+        app_commands.Choice(name="Gcoins", value="gcoin"),
+        app_commands.Choice(name="Ocoins", value="ocoin"),
+        app_commands.Choice(name="Item", value="item"),
+        app_commands.Choice(name="Role", value="role"),
+        app_commands.Choice(name="Premium", value="premium"),
+    ],
+    scope=[
+        app_commands.Choice(name="Global (All Servers)", value="global"),
+        app_commands.Choice(name="Official Server Only", value="official"),
+    ]
+)
+async def createcode(
+    i: discord.Interaction,
+    code: str,
+    reward: app_commands.Choice[str],
+    value: str = "none",
+    amount: int = 0,
+    uses: int = 1,
+    scope: app_commands.Choice[str] = None
+):
+
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner can create codes", i.user)
+        )
+
+    scope_value = scope.value if scope else "global"
+
+    db.codes.insert_one({
+        "code": code.lower(),
+        "reward": reward.value,
+        "value": value,
+        "amount": amount,
+        "uses": uses,
+        "scope": scope_value,
+        "redeemed_by": []   # 🔥 NEW
+    })
+
+    embed_msg = emb("Code Created", f"🎁 Code **{code}** created", i.user)
+    embed_msg.add_field(name="🎯 Type", value=reward.value, inline=True)
+    embed_msg.add_field(name="🌍 Scope", value=scope_value, inline=True)
+    embed_msg.add_field(name="🔁 Uses", value=str(uses), inline=True)
+
+    await i.response.send_message(embed=embed_msg)
+
 
 #================= REDEEM =================
 
-@tree.command(name="createcode")
-async def createcode(i: discord.Interaction, code: str, amount: int):
-    if not is_owner(i.user.id):
-        return await i.response.send_message("❌ No permission")
-
-    c = load(CODES_FILE)
-    c[code] = amount
-    save(CODES_FILE, c)
-
-    await i.response.send_message("✅ Code created")
-
 @tree.command(name="redeem")
 async def redeem(i: discord.Interaction, code: str):
-    c = load(CODES_FILE)
-    d = data()
 
-    if code not in c:
-        return await i.response.send_message("❌ Invalid code")
+    code_data = db.codes.find_one({"code": code.lower()})
 
-    user(d, i.user.id)["coins"] += c[code]
-    del c[code]
+    if not code_data:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Invalid or expired code", i.user)
+        )
 
-    save(CODES_FILE, c)
-    save(DATA_FILE, d)
+    # 🔒 one user one redeem
+    if i.user.id in code_data.get("redeemed_by", []):
+        return await i.response.send_message(
+            embed=emb("Already Used", "❌ You already redeemed this code", i.user)
+        )
 
-    await i.response.send_message("✅ Redeemed")
+    # 🔒 official server restriction
+    if code_data.get("scope") == "official":
+        if not is_official_server(i.guild.id):
+            return await i.response.send_message(
+                embed=emb(
+                    "Access Denied",
+                    "💠 This code can only be used in the official server",
+                    i.user
+                )
+            )
+
+    u = get_user(i.user.id)
+    reward = code_data["reward"]
+
+    #================= APPLY REWARD =================
+
+    if reward == "gcoin":
+        u["gcoins"] = u.get("gcoins", 0) + code_data["amount"]
+
+    elif reward == "ocoin":
+        u["ocoins"] = u.get("ocoins", 0) + code_data["amount"]
+
+    elif reward == "item":
+        inv = u.get("inventory", {})
+        inv[code_data["value"]] = inv.get(code_data["value"], 0) + 1
+        u["inventory"] = inv
+
+    elif reward == "premium":
+        days = int(code_data["value"])
+        u["premium_until"] = max(time.time(), u.get("premium_until", 0)) + days * 86400
+
+    elif reward == "role":
+        role = i.guild.get_role(int(code_data["value"]))
+        if role:
+            await i.user.add_roles(role)
+
+    #================= UPDATE CODE =================
+
+    if code_data["uses"] <= 1:
+        db.codes.delete_one({"_id": code_data["_id"]})
+    else:
+        db.codes.update_one(
+            {"_id": code_data["_id"]},
+            {
+                "$inc": {"uses": -1},
+                "$push": {"redeemed_by": i.user.id}  # 🔥 SAVE USER
+            }
+        )
+
+    update_user(u)
+
+    #================= UI =================
+
+    embed_msg = emb("Redeemed Successfully", f"🎉 Code **{code}** applied!", i.user)
+
+    if reward == "gcoin":
+        embed_msg.add_field(name="Reward", value=f"{code_data['amount']} 🪙", inline=False)
+
+    elif reward == "ocoin":
+        embed_msg.add_field(name="Reward", value=f"{code_data['amount']} 💠", inline=False)
+
+    elif reward == "premium":
+        embed_msg.add_field(name="Reward", value=f"{code_data['value']} Days 💎", inline=False)
+
+    elif reward == "item":
+        embed_msg.add_field(name="Reward", value=f"🎒 {code_data['value']}", inline=False)
+
+    elif reward == "role":
+        embed_msg.add_field(name="Reward", value="🪪 Role Granted", inline=False)
+
+    embed_msg.set_footer(text="SamCoin Code System 🎁")
+
+    await i.response.send_message(embed=embed_msg)
 
 #================= OWNER =================
 
