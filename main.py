@@ -12,7 +12,7 @@ TOKEN = os.getenv("TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 
 MAIN_OWNER = 972663557420351498
-OFFICIAL_SERVER_ID = 1492901903280111858  # 👈 added
+OFFICIAL_SERVER_ID = 1492901903280111858
 
 EMOJI = "🪙"
 
@@ -43,6 +43,8 @@ tree = bot.tree
 
 spam = {}
 msg_cd = {}
+
+# ⚡ temp owners with expiry (uid: timestamp)
 temp_owners = {}
 
 #================= CORE FUNCTIONS =================
@@ -94,23 +96,35 @@ def update_server(s):
     servers_col.update_one({"_id": s["_id"]}, {"$set": s})
 
 
+#================= OWNER SYSTEM =================
+
 def is_owner(uid):
+    # 👑 main owner
     if uid == MAIN_OWNER:
         return True
 
+    # ⚡ temp owner (with expiry check)
     if uid in temp_owners:
         if time.time() < temp_owners[uid]:
             return True
         else:
             del temp_owners[uid]
 
-    return owners_col.find_one({"_id": str(uid)}) is not None
+    # 🔒 permanent owner (MongoDB)
+    return owners_col.find_one({"id": uid}) is not None
 
+
+#================= PREMIUM =================
 
 def is_premium(u):
     return time.time() < u.get("premium_until", 0)
 
+
 #================= UTIL =================
+
+def is_official_server(guild_id):
+    return guild_id == OFFICIAL_SERVER_ID
+
 
 def emb(title, desc, user=None):
     e = discord.Embed(
@@ -123,10 +137,7 @@ def emb(title, desc, user=None):
         e.set_thumbnail(url=user.display_avatar.url)
         e.set_author(name=user.name, icon_url=user.display_avatar.url)
 
-    # 💎 premium-style footer
     e.set_footer(text="SamCoin 🪙 • Premium Economy")
-
-    # ⏱️ timestamp (good for logs + UI)
     e.timestamp = discord.utils.utcnow()
 
     return e
@@ -1499,7 +1510,7 @@ async def gdeleteall(i: discord.Interaction):
 @app_commands.describe(
     code="Code name",
     reward="Reward type",
-    value="Item name / role ID / premium days / none",
+    value="Item name / role ID / premium days",
     amount="Amount (for coins)",
     uses="Number of uses",
     scope="global or official"
@@ -1513,7 +1524,7 @@ async def gdeleteall(i: discord.Interaction):
         app_commands.Choice(name="Premium", value="premium"),
     ],
     scope=[
-        app_commands.Choice(name="Global (All Servers)", value="global"),
+        app_commands.Choice(name="Global", value="global"),
         app_commands.Choice(name="Official Server Only", value="official"),
     ]
 )
@@ -1534,18 +1545,18 @@ async def createcode(
 
     scope_value = scope.value if scope else "global"
 
-    db.codes.insert_one({
+    codes_col.insert_one({
         "code": code.lower(),
         "reward": reward.value,
         "value": value,
         "amount": amount,
         "uses": uses,
         "scope": scope_value,
-        "redeemed_by": []   # 🔥 NEW
+        "redeemed_by": []
     })
 
     embed_msg = emb("Code Created", f"🎁 Code **{code}** created", i.user)
-    embed_msg.add_field(name="🎯 Type", value=reward.value, inline=True)
+    embed_msg.add_field(name="🎯 Reward", value=reward.value, inline=True)
     embed_msg.add_field(name="🌍 Scope", value=scope_value, inline=True)
     embed_msg.add_field(name="🔁 Uses", value=str(uses), inline=True)
 
@@ -1557,7 +1568,7 @@ async def createcode(
 @tree.command(name="redeem")
 async def redeem(i: discord.Interaction, code: str):
 
-    code_data = db.codes.find_one({"code": code.lower()})
+    code_data = codes_col.find_one({"code": code.lower()})
 
     if not code_data:
         return await i.response.send_message(
@@ -1570,19 +1581,79 @@ async def redeem(i: discord.Interaction, code: str):
             embed=emb("Already Used", "❌ You already redeemed this code", i.user)
         )
 
-    # 🔒 official server restriction
-    if code_data.get("scope") == "official":
+    # 🔒 official server only
+    if code_data["scope"] == "official":
         if not is_official_server(i.guild.id):
             return await i.response.send_message(
                 embed=emb(
                     "Access Denied",
-                    "💠 This code can only be used in the official server",
+                    "💠 This code works only in official server",
                     i.user
                 )
             )
 
     u = get_user(i.user.id)
     reward = code_data["reward"]
+
+    #================= APPLY REWARDS =================
+
+    if reward == "gcoin":
+        u["gcoins"] = u.get("gcoins", 0) + code_data["amount"]
+
+    elif reward == "ocoin":
+        u["ocoins"] = u.get("ocoins", 0) + code_data["amount"]
+
+    elif reward == "item":
+        inv = u.get("ginv", {})
+        inv[code_data["value"]] = inv.get(code_data["value"], 0) + 1
+        u["ginv"] = inv
+
+    elif reward == "premium":
+        days = int(code_data["value"])
+        u["premium_until"] = max(time.time(), u.get("premium_until", 0)) + days * 86400
+
+    elif reward == "role":
+        role = i.guild.get_role(int(code_data["value"]))
+        if role:
+            await i.user.add_roles(role)
+
+    #================= UPDATE CODE =================
+
+    if code_data["uses"] <= 1:
+        codes_col.delete_one({"_id": code_data["_id"]})
+    else:
+        codes_col.update_one(
+            {"_id": code_data["_id"]},
+            {
+                "$inc": {"uses": -1},
+                "$push": {"redeemed_by": i.user.id}
+            }
+        )
+
+    update_user(u)
+
+    #================= UI =================
+
+    embed_msg = emb("Redeemed Successfully", f"🎉 Code **{code}** applied!", i.user)
+
+    if reward == "gcoin":
+        embed_msg.add_field(name="🪙 Gcoins", value=f"+{code_data['amount']}", inline=False)
+
+    elif reward == "ocoin":
+        embed_msg.add_field(name="💠 Ocoins", value=f"+{code_data['amount']}", inline=False)
+
+    elif reward == "premium":
+        embed_msg.add_field(name="💎 Premium", value=f"{code_data['value']} days", inline=False)
+
+    elif reward == "item":
+        embed_msg.add_field(name="🎒 Item", value=code_data["value"], inline=False)
+
+    elif reward == "role":
+        embed_msg.add_field(name="🪪 Role", value="Granted", inline=False)
+
+    embed_msg.set_footer(text="SamCoin Code System 🎁")
+
+    await i.response.send_message(embed=embed_msg)
 
     #================= APPLY REWARD =================
 
@@ -1645,217 +1716,755 @@ async def redeem(i: discord.Interaction, code: str):
     await i.response.send_message(embed=embed_msg)
 
 #================= OWNER =================
+#================= OWNER SYSTEM =================
 
 @tree.command(name="addowner")
 async def addowner(i: discord.Interaction, member: discord.Member):
+
     if i.user.id != MAIN_OWNER:
-        return await i.response.send_message("❌ Only main owner")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner can add owners", i.user)
+        )
 
-    o = load(OWNERS_FILE)
-    o[str(member.id)] = True
-    save(OWNERS_FILE, o)
+    if owners_col.find_one({"id": member.id}):
+        return await i.response.send_message(
+            embed=emb("Error", "⚠️ User is already an owner", i.user)
+        )
 
-    await i.response.send_message("✅ Owner added")
-    
+    owners_col.insert_one({"id": member.id})
+
+    await i.response.send_message(
+        embed=emb("Owner Added", f"👑 {member.mention} is now an owner", i.user)
+    )
+
+
 @tree.command(name="removeowner")
 async def removeowner(i: discord.Interaction, member: discord.Member):
+
     if i.user.id != MAIN_OWNER:
-        return await i.response.send_message("❌ Only main owner")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner can remove owners", i.user)
+        )
 
-    o = load(OWNERS_FILE)
-    o.pop(str(member.id), None)
-    save(OWNERS_FILE, o)
+    owners_col.delete_one({"id": member.id})
 
-    await i.response.send_message("✅ Owner removed")
-    
+    await i.response.send_message(
+        embed=emb("Owner Removed", f"❌ {member.mention} removed from owners", i.user)
+    )
+
+
+#================= TEMP OWNER =================
+
+@tree.command(name="tempowner")
+@app_commands.describe(member="User", minutes="Duration in minutes")
+async def tempowner(i: discord.Interaction, member: discord.Member, minutes: int):
+
+    if i.user.id != MAIN_OWNER:
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner can assign temp owners", i.user)
+        )
+
+    expire_time = time.time() + (minutes * 60)
+    temp_owners[member.id] = expire_time
+
+    await i.response.send_message(
+        embed=emb(
+            "Temp Owner Assigned",
+            f"⚡ {member.mention} is owner for **{minutes} minutes**",
+            i.user
+        )
+    )
+
+
+#================= OWNER LIST =================
+
 @tree.command(name="owners")
 async def owners(i: discord.Interaction):
-    o = load(OWNERS_FILE)
 
-    msg = f"👑 Main Owner: <@{MAIN_OWNER}>\n\n"
+    owners_list = list(owners_col.find())
+    embed_msg = emb("👑 Owner List", "", i.user)
 
-    if o:
-        msg += "🛡️ Other Owners:\n"
-        for uid in o:
-            msg += f"<@{uid}>\n"
+    embed_msg.add_field(
+        name="👑 Main Owner",
+        value=f"<@{MAIN_OWNER}>",
+        inline=False
+    )
+
+    if owners_list:
+        extra = "\n".join([f"<@{o['id']}>" for o in owners_list])
+        embed_msg.add_field(
+            name="🛡️ Permanent Owners",
+            value=extra,
+            inline=False
+        )
     else:
-        msg += "No extra owners"
+        embed_msg.add_field(
+            name="🛡️ Permanent Owners",
+            value="None",
+            inline=False
+        )
 
-    await i.response.send_message(msg)
+    if temp_owners:
+        temp_text = ""
+        now = time.time()
+
+        for uid, exp in temp_owners.items():
+            if now < exp:
+                mins = int((exp - now) // 60)
+                temp_text += f"<@{uid}> - {mins}m\n"
+
+        embed_msg.add_field(
+            name="⚡ Temp Owners",
+            value=temp_text or "None",
+            inline=False
+        )
+
+    await i.response.send_message(embed=embed_msg)
+
+#================= EXCHANGE CONFIRM =================
+
+class ExchangeConfirm(discord.ui.View):
+    def __init__(self, user, currency, amount):
+        super().__init__(timeout=30)
+        self.user = user
+        self.currency = currency
+        self.amount = amount
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message(
+                embed=emb("Denied", "❌ Not your action", interaction.user),
+                ephemeral=True
+            )
+
+        u = get_user(self.user.id)
+        premium = is_premium(u)
+        now = time.time()
+
+        # 🔁 reset daily limit
+        if now - u.get("exchange_reset", 0) >= 86400:
+            u["exchange_today"] = 0
+            u["exchange_reset"] = now
+
+        u.setdefault("exchange_today", 0)
+
+        # 📊 DAILY LIMIT
+        daily_limit = 500 if premium else 200
+
+        # 💱 G → O
+        if self.currency == "g2o":
+
+            rate = 10
+            ocoins = self.amount // rate
+
+            if ocoins <= 0:
+                return await interaction.response.send_message(
+                    embed=emb("Too Low", f"❌ Minimum {rate} 🪙 required", interaction.user),
+                    ephemeral=True
+                )
+
+            if u.get("gcoins", 0) < self.amount:
+                return await interaction.response.send_message(
+                    embed=emb("Error", "❌ Not enough gcoins", interaction.user),
+                    ephemeral=True
+                )
+
+            if u["exchange_today"] + ocoins > daily_limit:
+                return await interaction.response.send_message(
+                    embed=emb("Limit", f"❌ Daily limit reached ({daily_limit} 💠)", interaction.user),
+                    ephemeral=True
+                )
+
+            used = ocoins * rate
+
+            u["gcoins"] -= used
+            u["ocoins"] += ocoins
+            u["exchange_today"] += ocoins
+
+            msg = f"Converted **{used} 🪙 → {ocoins} 💠**"
+
+        # 💱 O → G
+        else:
+
+            rate = 7
+
+            if u.get("ocoins", 0) < self.amount:
+                return await interaction.response.send_message(
+                    embed=emb("Error", "❌ Not enough ocoins", interaction.user),
+                    ephemeral=True
+                )
+
+            if u["exchange_today"] + self.amount > daily_limit:
+                return await interaction.response.send_message(
+                    embed=emb("Limit", f"❌ Daily limit reached ({daily_limit} 💠)", interaction.user),
+                    ephemeral=True
+                )
+
+            gcoins = self.amount * rate
+
+            u["ocoins"] -= self.amount
+            u["gcoins"] += gcoins
+            u["exchange_today"] += self.amount
+
+            msg = f"Converted **{self.amount} 💠 → {gcoins} 🪙**"
+
+        update_user(u)
+
+        embed_msg = emb("💱 Exchange Complete", msg, interaction.user)
+        embed_msg.add_field(
+            name="📊 Balance",
+            value=f"🪙 {u['gcoins']} | 💠 {u['ocoins']}",
+            inline=False
+        )
+
+        await interaction.response.edit_message(embed=embed_msg, view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message(
+                embed=emb("Denied", "❌ Not your action", interaction.user),
+                ephemeral=True
+            )
+
+        await interaction.response.edit_message(
+            embed=emb("Cancelled", "❌ Exchange cancelled", interaction.user),
+            view=None
+        )
+
+#================= EXCHANGE =================
+
+@tree.command(name="exchange")
+@app_commands.describe(
+    currency="Convert type",
+    amount="Amount to convert"
+)
+@app_commands.choices(
+    currency=[
+        app_commands.Choice(name="Gcoin ➜ Ocoin", value="g2o"),
+        app_commands.Choice(name="Ocoin ➜ Gcoin", value="o2g"),
+    ]
+)
+async def exchange(i: discord.Interaction, currency: app_commands.Choice[str], amount: int):
+
+    if amount <= 0:
+        return await i.response.send_message(
+            embed=emb("Error", "❌ Invalid amount", i.user)
+        )
+
+    u = get_user(i.user.id)
+    premium = is_premium(u)
+    now = time.time()
+
+    # ⏳ COOLDOWN
+    cd = 60 if premium else 120
+    remaining = cd - (now - u.get("exchange_cd", 0))
+
+    if i.user.id != MAIN_OWNER and remaining > 0:
+        return await i.response.send_message(
+            embed=emb(
+                "Cooldown",
+                f"⏳ Wait **{int(remaining)}s** before next exchange",
+                i.user
+            )
+        )
+
+    u["exchange_cd"] = now
+    update_user(u)
+
+    # 💱 PREVIEW
+    if currency.value == "g2o":
+        preview = f"{amount} 🪙 → {amount // 10} 💠"
+    else:
+        preview = f"{amount} 💠 → {amount * 7} 🪙"
+
+    embed_msg = emb(
+        "💱 Confirm Exchange",
+        f"Are you sure?\n\n**{preview}**",
+        i.user
+    )
+
+    embed_msg.add_field(
+        name="📊 Daily Limit",
+        value="💠 500 (Premium)\n💠 200 (Normal)",
+        inline=False
+    )
+
+    embed_msg.set_footer(text="Click confirm to proceed")
+
+    await i.response.send_message(
+        embed=embed_msg,
+        view=ExchangeConfirm(i.user, currency.value, amount)
+        )
 
 #================= LOTTERY =================
 
 @tree.command(name="lottery")
 async def lottery(i: discord.Interaction):
-    d = data()
-    u = user(d, i.user.id)
 
-    # entry fee
-    if u["coins"] < 10:
-        return await i.response.send_message("❌ You need 10 🪙 to play")
+    u = get_user(i.user.id)
+    premium = is_premium(u)
 
-    u["coins"] -= 10
+    ENTRY_COST = 10
+    COOLDOWN = 5  # seconds
 
-    if random.choice([True, False]):
-        w = random.randint(50, 200)
-        u["coins"] += w
-        msg = f"🎉 You won {w} 🪙!"
-    else:
-        msg = "❌ You lost 10 🪙"
+    now = time.time()
 
-    save(DATA_FILE, d)
-    await i.response.send_message(msg)
+    # ⏳ cooldown check
+    if now - u.get("lottery_cd", 0) < COOLDOWN:
+        remaining = int(COOLDOWN - (now - u.get("lottery_cd", 0)))
+        return await i.response.send_message(
+            embed=emb("Cooldown", f"⏳ Wait **{remaining}s** before playing again", i.user)
+        )
 
-#================= LEADERBOARD =================
+    # 💰 balance check
+    if u.get("gcoins", 0) < ENTRY_COST:
+        return await i.response.send_message(
+            embed=emb("Insufficient Balance", "❌ You need **10 🪙** to play", i.user)
+        )
 
-@tree.command(name="top")
-async def top(i: discord.Interaction):
-    d = data()["users"]
-    sorted_users = sorted(d.items(), key=lambda x: x[1]["coins"], reverse=True)[:10]
+    # deduct entry
+    u["gcoins"] = u.get("gcoins", 0) - ENTRY_COST
 
-    msg = ""
-    for idx, (uid, val) in enumerate(sorted_users):
-        try:
-            user_obj = await bot.fetch_user(int(uid))
-            name = user_obj.name
-        except:
-            name = uid
+    # 🎲 reduced win chance (45%)
+    win = random.random() < 0.45
 
-        msg += f"{idx+1}. {name} - {val['coins']}\n"
+    if win:
+        reward = random.randint(80, 250) if premium else random.randint(50, 200)
+        u["gcoins"] += reward
 
-    await i.response.send_message(msg or "Empty")
-    
-@tree.command(name="globaltop")
-async def globaltop(i: discord.Interaction):
-    d = data()["users"]
-    sorted_users = sorted(d.items(), key=lambda x: x[1]["coins"], reverse=True)[:10]
+        embed_msg = emb(
+            "🎉 You Won!",
+            f"You won **{reward} 🪙**!",
+            i.user
+        )
 
-    embed = discord.Embed(
-        title="🌍 Global Leaderboard",
-        color=0x5865F2
-    )
+        embed_msg.add_field(
+            name="💰 Profit",
+            value=f"+{reward - ENTRY_COST} 🪙",
+            inline=False
+        )
 
-    if not sorted_users:
-        embed.description = "No data available"
-    else:
-        for idx, (uid, val) in enumerate(sorted_users):
-            try:
-                user_obj = await bot.fetch_user(int(uid))
-                name = user_obj.name
-            except:
-                name = uid
-
-            embed.add_field(
-                name=f"#{idx+1} {name}",
-                value=f"{val['coins']} 🪙",
+        if premium:
+            embed_msg.add_field(
+                name="💎 Premium Bonus",
+                value="Higher reward rates!",
                 inline=False
             )
 
-    await i.response.send_message(embed=embed)
+    else:
+        embed_msg = emb(
+            "❌ You Lost",
+            f"You lost **{ENTRY_COST} 🪙**",
+            i.user
+        )
 
-#================= RESET =================
+    # ⏳ set cooldown
+    u["lottery_cd"] = now
+
+    # 📊 save
+    update_user(u)
+
+    embed_msg.add_field(
+        name="📊 Balance",
+        value=f"🪙 {u.get('gcoins', 0)}",
+        inline=False
+    )
+
+    embed_msg.set_footer(text="Try your luck again 🎲")
+
+    await i.response.send_message(embed=embed_msg)
+
+#================= GCOIN LEADERBOARD =================
+
+@tree.command(name="gtop")
+async def gtop(i: discord.Interaction):
+
+    users = list(users_col.find())
+    sorted_users = sorted(users, key=lambda x: x.get("gcoins", 0), reverse=True)[:10]
+
+    embed_msg = emb("🪙 Gcoin Leaderboard", "Top richest users globally", i.user)
+
+    if not sorted_users:
+        embed_msg.description = "No data available"
+    else:
+        for idx, u in enumerate(sorted_users):
+            uid = int(u["_id"])
+
+            try:
+                user_obj = await bot.fetch_user(uid)
+                name = user_obj.name
+            except:
+                name = f"User {uid}"
+
+            embed_msg.add_field(
+                name=f"#{idx+1} {name}",
+                value=f"🪙 {u.get('gcoins', 0)}",
+                inline=False
+            )
+
+    embed_msg.set_footer(text="SamCoin Global Economy 🪙")
+
+    await i.response.send_message(embed=embed_msg)
+
+
+#================= OCOIN LEADERBOARD =================
+
+@tree.command(name="otop")
+async def otop(i: discord.Interaction):
+
+    users = list(users_col.find())
+    sorted_users = sorted(users, key=lambda x: x.get("ocoins", 0), reverse=True)[:10]
+
+    embed_msg = emb("💠 Ocoin Leaderboard", "Top premium currency holders", i.user)
+
+    if not sorted_users:
+        embed_msg.description = "No data available"
+    else:
+        for idx, u in enumerate(sorted_users):
+            uid = int(u["_id"])
+
+            try:
+                user_obj = await bot.fetch_user(uid)
+                name = user_obj.name
+            except:
+                name = f"User {uid}"
+
+            embed_msg.add_field(
+                name=f"#{idx+1} {name}",
+                value=f"💠 {u.get('ocoins', 0)}",
+                inline=False
+            )
+
+    embed_msg.set_footer(text="SamCoin Premium Economy 💎")
+
+    await i.response.send_message(embed=embed_msg)
+
+
+#================= SERVER LEADERBOARD =================
+
+@tree.command(name="server_top")
+async def server_top(i: discord.Interaction):
+
+    # get all members in server (exclude bots)
+    guild_members = [m.id for m in i.guild.members if not m.bot]
+
+    users = []
+    for uid in guild_members:
+        u = users_col.find_one({"_id": str(uid)})
+        if u:
+            users.append(u)
+
+    # sort by total wealth (gcoins + ocoins)
+    sorted_users = sorted(
+        users,
+        key=lambda x: x.get("gcoins", 0) + x.get("ocoins", 0),
+        reverse=True
+    )[:10]
+
+    embed_msg = emb("🏠 Server Leaderboard", "Top users in this server", i.user)
+
+    if not sorted_users:
+        embed_msg.description = "No data available"
+    else:
+        for idx, u in enumerate(sorted_users):
+            uid = int(u["_id"])
+
+            member = i.guild.get_member(uid)
+            name = member.name if member else f"User {uid}"
+
+            g = u.get("gcoins", 0)
+            o = u.get("ocoins", 0)
+
+            embed_msg.add_field(
+                name=f"#{idx+1} {name}",
+                value=f"🪙 {g} | 💠 {o}",
+                inline=False
+            )
+
+    embed_msg.set_footer(text="Server Economy Ranking 🏠")
+
+    await i.response.send_message(embed=embed_msg)
+
+#================= RESET CONFIRM VIEW =================
+
+class ResetConfirm(discord.ui.View):
+    def __init__(self, user, action, target=None, options=None):
+        super().__init__(timeout=30)
+        self.user = user
+        self.action = action
+        self.target = target
+        self.options = options or {}
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
+
+        #================= SERVER RESET =================
+        if self.action == "server":
+            servers_col.delete_one({"_id": str(interaction.guild.id)})
+
+            embed_msg = emb("Reset Complete", "🏠 Server data has been reset", self.user)
+
+        #================= GLOBAL RESET =================
+        elif self.action == "global":
+
+            users = list(users_col.find())
+
+            for u in users:
+                if self.options.get("gcoins"):
+                    u["gcoins"] = 0
+                if self.options.get("ocoins"):
+                    u["ocoins"] = 0
+                if self.options.get("ginv"):
+                    u["ginv"] = {}
+                if self.options.get("oinv"):
+                    u["oinv"] = {}
+
+                update_user(u)
+
+            embed_msg = emb("Global Reset", "🌍 Selected global data has been reset", self.user)
+
+        #================= USER RESET =================
+        elif self.action == "user":
+
+            u = get_user(self.target.id)
+
+            if self.options.get("gcoins"):
+                u["gcoins"] = 0
+            if self.options.get("ocoins"):
+                u["ocoins"] = 0
+            if self.options.get("ginv"):
+                u["ginv"] = {}
+            if self.options.get("oinv"):
+                u["oinv"] = {}
+
+            update_user(u)
+
+            embed_msg = emb("User Reset", f"♻️ Reset applied to {self.target.mention}", self.user)
+
+        await interaction.response.edit_message(embed=embed_msg, view=None)
+
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if interaction.user.id != self.user.id:
+            return await interaction.response.send_message("❌ Not your action", ephemeral=True)
+
+        embed_msg = emb("Cancelled", "❌ Reset cancelled", self.user)
+
+        await interaction.response.edit_message(embed=embed_msg, view=None)
+
+
+#================= RESET SERVER =================
 
 @tree.command(name="resetserver")
 async def resetserver(i: discord.Interaction):
+
     if not is_owner(i.user.id):
-        return await i.response.send_message("❌ No permission")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ No permission", i.user)
+        )
 
-    d = data()
-    sid = str(i.guild.id)
+    embed_msg = emb(
+        "⚠️ Confirm Reset",
+        "This will reset **ALL server data**.\nAre you sure?",
+        i.user
+    )
 
-    if sid in d["servers"]:
-        d["servers"][sid] = {"shop": {}, "inv": {}}
-        save(DATA_FILE, d)
+    await i.response.send_message(
+        embed=embed_msg,
+        view=ResetConfirm(i.user, "server")
+    )
 
-    await i.response.send_message("✅ Server data reset")
-    
+
+#================= RESET GLOBAL =================
+
 @tree.command(name="resetglobal")
-async def resetglobal(i: discord.Interaction):
+@app_commands.describe(
+    gcoins="Reset all gcoins",
+    ocoins="Reset all ocoins",
+    ginv="Reset all gcoin inventory",
+    oinv="Reset all ocoin inventory"
+)
+async def resetglobal(
+    i: discord.Interaction,
+    gcoins: bool = False,
+    ocoins: bool = False,
+    ginv: bool = False,
+    oinv: bool = False
+):
+
     if i.user.id != MAIN_OWNER:
-        return await i.response.send_message("❌ Only main owner")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner can reset global data", i.user)
+        )
 
-    d = data()
-    d["users"] = {}
-    d["global_shop"] = {}
-    save(DATA_FILE, d)
+    options = {
+        "gcoins": gcoins,
+        "ocoins": ocoins,
+        "ginv": ginv,
+        "oinv": oinv
+    }
 
-    await i.response.send_message("✅ Global data reset")
-    
-#================= TEMP OWNER =================
+    embed_msg = emb(
+        "⚠️ Confirm Global Reset",
+        "This will reset selected **global data**.\nProceed?",
+        i.user
+    )
 
-@tree.command(name="tempowner")
-async def tempowner(i: discord.Interaction, member: discord.Member, minutes: int):
+    await i.response.send_message(
+        embed=embed_msg,
+        view=ResetConfirm(i.user, "global", options=options)
+    )
+
+
+#================= RESET USER =================
+
+@tree.command(name="resetuser")
+@app_commands.describe(
+    member="Target user",
+    gcoins="Reset gcoins",
+    ocoins="Reset ocoins",
+    ginv="Reset gcoin inventory",
+    oinv="Reset ocoin inventory"
+)
+async def resetuser(
+    i: discord.Interaction,
+    member: discord.Member,
+    gcoins: bool = False,
+    ocoins: bool = False,
+    ginv: bool = False,
+    oinv: bool = False
+):
+
     if i.user.id != MAIN_OWNER:
-        return await i.response.send_message("❌ Only main owner")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ Only main owner can reset users", i.user)
+        )
 
-    expire = time.time() + (minutes * 60)
-    temp_owners[member.id] = expire
+    options = {
+        "gcoins": gcoins,
+        "ocoins": ocoins,
+        "ginv": ginv,
+        "oinv": oinv
+    }
 
-    await i.response.send_message(f"✅ {member.name} is owner for {minutes} minutes")
+    embed_msg = emb(
+        "⚠️ Confirm User Reset",
+        f"Reset data for {member.mention}?\nProceed carefully.",
+        i.user
+    )
+
+    await i.response.send_message(
+        embed=embed_msg,
+        view=ResetConfirm(i.user, "user", target=member, options=options)
+    )
     
 #================= HELP =================
 
 @tree.command(name="help")
 async def help_cmd(i: discord.Interaction):
-    embed = discord.Embed(
-        title="📖 Help Menu",
-        color=0x5865F2
-    )
 
+    embed = emb("📖 Help Menu", "All available commands", i.user)
+
+    # 💰 ECONOMY
     embed.add_field(
         name="💰 Economy",
         value="""
-/balance - Check coins  
+/balance - Check wallet  
 /give - Send coins  
 /work - Earn coins  
 /daily - Daily reward  
-/lottery - Try luck  
+/lottery - Try your luck  
+/exchange - Convert currencies  
 """,
         inline=False
     )
 
+    # 🪙 CURRENCY
     embed.add_field(
-        name="🛒 Shop",
+        name="🪙 Currency",
         value="""
-/shop - View shop  
-/buy - Buy item  
-/inventory - Your items  
+🪙 Gcoins = Main currency  
+💠 Ocoins = Premium currency  
 """,
         inline=False
     )
 
+    # 🛒 GSHOP (PLAYER MARKET)
     embed.add_field(
-        name="🌍 Global",
+        name="🛒 GShop (Player Market)",
         value="""
-/globalshop - Global shop  
-/buyglobal - Buy global item  
-/globalinventory - Your global items  
+/gshop - View market  
+/gsell - Sell item (50%)  
+/psell - Premium sell (75%)  
+/gbuy - Buy item  
 """,
         inline=False
     )
 
+    # 💠 OSHOP
     embed.add_field(
-        name="🎁 Redeem",
+        name="💠 OShop",
+        value="""
+/oshop - View shop  
+/obuy - Buy item  
+/oinv - Inventory  
+""",
+        inline=False
+    )
+
+    # 🎁 CODES
+    embed.add_field(
+        name="🎁 Codes",
         value="""
 /redeem - Redeem code  
 """,
         inline=False
     )
 
+    # 💎 PREMIUM
     embed.add_field(
         name="💎 Premium",
         value="""
 /buypremium - Buy premium  
-/premium - Check premium time  
+/premium - Check status  
 """,
         inline=False
     )
 
+    # 📊 LEADERBOARD
     embed.add_field(
-        name="📊 Other",
+        name="📊 Leaderboards",
         value="""
-/top - Leaderboard  
-/globaltop - Global leaderboard  
+/gtop - Gcoin leaderboard  
+/otop - Ocoin leaderboard  
+/server_top - Server ranking  
+""",
+        inline=False
+    )
+
+    # 🎒 INVENTORY
+    embed.add_field(
+        name="🎒 Inventory",
+        value="""
+/oinv - Ocoin inventory  
+""",
+        inline=False
+    )
+
+    # ⚙️ SYSTEM
+    embed.add_field(
+        name="⚙️ System",
+        value="""
+/help - Show this menu  
 """,
         inline=False
     )
@@ -1864,70 +2473,75 @@ async def help_cmd(i: discord.Interaction):
 
     await i.response.send_message(embed=embed)
 
+#================= OWNER HELP =================
+
 @tree.command(name="ownerhelp")
 async def ownerhelp(i: discord.Interaction):
+
     if not is_owner(i.user.id):
-        return await i.response.send_message("❌ No permission")
+        return await i.response.send_message(
+            embed=emb("Denied", "❌ No permission", i.user)
+        )
 
-    embed = discord.Embed(
-        title="👑 Owner Commands",
-        color=0xe74c3c
-    )
+    embed = emb("👑 Owner Panel", "Admin commands", i.user)
 
+    # 👑 OWNER MANAGEMENT
     embed.add_field(
-        name="💰 Economy Control",
+        name="👑 Owner System",
         value="""
-/give (bypass)
-/take
-/setcoins
+/addowner  
+/removeowner  
+/tempowner  
+/owners  
 """,
         inline=False
     )
 
-    embed.add_field(
-        name="🛒 Shop Control",
-        value="""
-/additem
-""",
-        inline=False
-    )
-
-    embed.add_field(
-        name="🌍 Global Control",
-        value="""
-/addglobalitem
-/resetglobal
-""",
-        inline=False
-    )
-
+    # 🎁 CODES
     embed.add_field(
         name="🎁 Codes",
         value="""
-/createcode
+/createcode  
 """,
         inline=False
     )
 
+    # 💠 OSHOP ADMIN
     embed.add_field(
-        name="👑 Owner Management",
+        name="💠 OShop Admin",
         value="""
-/addowner
-/removeowner
-/tempowner
+/oadditem  
+/oremoveitem  
+/odeleteitem  
 """,
         inline=False
     )
 
+    # 🛒 GSHOP ADMIN
     embed.add_field(
-        name="⚙️ Server",
+        name="🛒 GShop Admin",
         value="""
-/resetserver
+/gremoveitem  
+/gdeleteitem  
 """,
         inline=False
     )
+
+    # ♻️ RESET SYSTEM
+    embed.add_field(
+        name="♻️ Reset System",
+        value="""
+/resetserver  
+/resetglobal  
+/resetuser  
+""",
+        inline=False
+    )
+
+    embed.set_footer(text="SamCoin Admin Panel 🔥")
 
     await i.response.send_message(embed=embed)
+    
 #================= RUN =================
 
 bot.run(TOKEN)
